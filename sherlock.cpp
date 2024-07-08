@@ -684,9 +684,9 @@ WORD __attribute__((export_name("compile"))) compile (BYTE * script, WORD size, 
     if (:: stdout == stdout)
     {
         auto ap₀ = ap;
-        while (-- ap₀)
+        while (ap₀ > 0)
         {
-            print (stack₁ [ap₀]);
+            print (stack₁ [-- ap₀]);
             PRINT ('\n');
         }
     }
