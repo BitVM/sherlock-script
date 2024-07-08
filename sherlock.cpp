@@ -134,7 +134,6 @@ struct
     // NOTE: 0xC0-0xFF compressed constant
     decltype (OP_TRUE) opcode; // operator, constant or condition
     BYTE reference_counter; // OP_PICK|OP_ROLL OP_OVER|OP_SWAP [OP_DUP]
-    WORD condition; // OP_IF or OP_NOTIF
     WORD operand_0; // OP_* arithmetic expression
     WORD operand_1; // OP_* arithmetic expression
     WORD operand_2; // OP_* arithmetic expression
@@ -144,7 +143,7 @@ __trace [65536];
 WORD op = 0;
 WORD op⁻¹ = 65535;
 
-// Parser trace index as constant number
+// Parse trace index as constant number
 LONG eval (WORD addr)
 {
     decltype (OP_TRUE) opcode = __trace [addr].opcode;
