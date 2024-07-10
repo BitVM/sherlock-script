@@ -462,25 +462,25 @@
                 let number = 0;
                 switch(byte) {
                     case 1:
-                        number <<= 8; number |= bytes [index ++];
+                        number |= bytes [index ++];
                         text [text.length] = number.toString(10);
                         continue;
                     case 2:
-                        number <<= 8; number |= bytes [index ++];
-                        number <<= 8; number |= bytes [index ++];
+                        number |= bytes [index ++];
+                        number |= bytes [index ++] << 8;
                         text [text.length] = number.toString(10);
                         continue;
                     case 3:
-                        number <<= 8; number |= bytes [index ++];
-                        number <<= 8; number |= bytes [index ++];
-                        number <<= 8; number |= bytes [index ++];
+                        number |= bytes [index ++];
+                        number |= bytes [index ++] << 8;
+                        number |= bytes [index ++] << 16;
                         text [text.length] = number.toString(10);
                         continue;
                     case 4:
-                        number <<= 8; number |= bytes [index ++];
-                        number <<= 8; number |= bytes [index ++];
-                        number <<= 8; number |= bytes [index ++];
-                        number <<= 8; number |= bytes [index ++];
+                        number |= bytes [index ++];
+                        number |= bytes [index ++] << 8;
+                        number |= bytes [index ++] << 16;
+                        number |= bytes [index ++] << 24;
                         text [text.length] = number.toString(10);
                         continue;
                     default:
@@ -512,23 +512,23 @@
                 }
                 if (Math.abs(number) < 2 ** 16) {
                     script [script.length] = 2;
+                    script [script.length] = number & 0xFF; number >>= 8;
                     script [script.length] = number & 0xFF;
-                    script [script.length] = number >> 8;
                     continue
                 }
                 if (Math.abs(number) < 2 ** 24) {
                     script [script.length] = 3;
+                    script [script.length] = number & 0xFF; number >>= 8;
+                    script [script.length] = number & 0xFF; number >>= 8;
                     script [script.length] = number & 0xFF;
-                    script [script.length] = number >> 8 & 0xFF;
-                    script [script.length] = number >> 16;
                     continue
                 }
                 if (Math.abs(number) < 2 ** 32) {
                     script [script.length] = 4;
+                    script [script.length] = number & 0xFF; number >>= 8;
+                    script [script.length] = number & 0xFF; number >>= 8;
+                    script [script.length] = number & 0xFF; number >>= 8;
                     script [script.length] = number & 0xFF;
-                    script [script.length] = number >> 8 & 0xFF;
-                    script [script.length] = number >> 16 & 0xFF;
-                    script [script.length] = number >> 24;
                     continue
                 }
             }
@@ -563,8 +563,9 @@
             const sherlock_wasm = await fetch ('sherlock.wasm');
             const array_buffer = await sherlock_wasm.arrayBuffer ( );
             const web_assembly = await WebAssembly.instantiate (array_buffer);
-            const buffer = web_assembly.instance.exports.memory.buffer;
-            const compile = web_assembly.instance.exports.compile;
+            const wasm_buffer = web_assembly.instance.exports.memory.buffer;
+            const wasm_compile = web_assembly.instance.exports.compile;
+            const wasm_stdout = web_assembly.instance.exports.stdout;
 
             // // Load example code
             // script_0.value = to_string ([81, 82, 147]);
@@ -573,7 +574,6 @@
             // Load script from cookies
             script_0.value = localStorage.getItem ('script_0');
             script_1.value = localStorage.getItem ('script_1');
-            stdout.textContent = localStorage.getItem ('stdout');
 
             // Peek sand animation
             flip_hourglass ( );
@@ -592,7 +592,7 @@
             })
 
             // Recompile on `textarea` changes
-            script_0.addEventListener ('keyup', function(_) {
+            script_0.addEventListener ('keyup', function (_) {
                 switch (_.code) {
                 case 'Escape':
                 case 'Enter':
@@ -628,22 +628,19 @@
                         }
                         else
                         {
-                            let array = new Uint8Array (buffer, 0, input.length);
+                            let array = new Uint8Array (wasm_buffer, 0, input.length);
                             array.set (input);
-                            let message = new Uint8Array (buffer, input.length, 768+1024);
-                            message.fill(0, 0, 768+1024);
-                            let length = compile (array.byteOffset, input.length, message.byteOffset);
+                            let length = wasm_compile (array.byteOffset, input.length);
                             let output = array.slice (0, Math.min (Array.from (array).length, length));
                             script_1.value = to_string (output);
-                            let bytes = Array.from (message);
+                            let bytes = Array.from (new Uint8Array (wasm_buffer, wasm_stdout ( ), 24576));
                             __stdout__ = new TextDecoder ( ).decode (new Uint8Array (bytes.slice (0, bytes.indexOf (0)))).split ('\n').filter (_ => _.length);
                             stdout.offset = 0;
                             stdout.length = __stdout__.length;
-                            stdout.textContent = __stdout__.slice(0, __stdout__.length).join('\n');
+                            stdout.textContent = __stdout__.slice (0, Math.min (2, stdout.length)).join ('\n');
                             // Save script as cookie
                             localStorage.setItem ('script_0', script_0.value);
                             localStorage.setItem ('script_1', script_1.value);
-                            localStorage.setItem ('stdout', stdout.textContent);
                         }
                     }, 720);
                     return flip_hourglass ( );
