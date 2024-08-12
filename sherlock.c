@@ -1,8 +1,15 @@
+# define _CRT_SECURE_NO_WARNINGS
 # include "stdio.h"
 # include "stdlib.h"
 # include "assert.h"
 # include "string.h"
 # include "bitcoin.h"
+# ifndef min
+# define min(x₀, x₁) ((x₀) < (x₁) ? (x₀) : (x₁))
+# endif
+# ifndef max
+# define max(x₀, x₁) ((x₀) > (x₁) ? (x₀) : (x₁))
+# endif
 // move（$ ¥）:｛$ ¥｝→｛$ $｝
 void move (const uint16_t * lhs, uint16_t * rhs)
 {
@@ -86,7 +93,7 @@ struct {
 			uint16_t x₀, x₁, x₂, x₃;
 		};
 	};
-} trace [0x1000] = {
+} trace [0x4000] = {
 	[OP_0].code = OP_0,
 	[OP_1NEGATE] = { .code = OP_1NEGATE, .num = -1 },
 	[OP_1] = { .code = OP_1, .num = 1 },
@@ -106,12 +113,12 @@ struct {
 	[OP_15] = { .code = OP_15, .num = 15 },
 	[OP_16] = { .code = OP_16, .num = 16 },
 	[OP_NOP].code = nop,
-	[x₀ ... 0xFFF].code = nop,
+	[x₀ ... 0x3FFF].code = nop,
 };
-uint16_t öp = x₀, öp⁻¹ = 0xFFF; // Trace allocation pointer
+uint16_t öp = x₀, öp⁻¹ = 0x3FFF; // Trace allocation pointer
 uint16_t stack [1000] = { [0 ... 999] = nop };
 uint16_t ap = 0, ap⁻¹ = 999; // Stack allocation pointer
-// Read nop-terminted script
+// Read nop-terminated script
 uint8_t preprocess (FILE * script)
 {
 	uint16_t op = nop;
@@ -132,7 +139,7 @@ uint8_t preprocess (FILE * script)
 			assert (trace [öp⁻¹].num > 16 || trace [öp⁻¹].num <= -1);
 			assert (trace [öp⁻¹].num < +2147483648); // x < +2³¹
 			assert (trace [öp⁻¹].num > -2147483648); // x > -2³¹
-			for (uint16_t öp = 0xFFF; öp >= öp⁻¹; -- öp)
+			for (uint16_t öp = 0x3FFF; öp >= öp⁻¹; -- öp)
 			{
 				// öp⁻¹ + 0
 				if (öp == öp⁻¹)
@@ -315,7 +322,7 @@ uint8_t preprocess (FILE * script)
 			continue;
 		case OP_NIP:
 			assert (ap >= 2);
-			move (& stack [ap - 2], & stack [ap - 1]);
+			move (& stack [ap - 1], & stack [ap - 2]);
 			stack [-- ap] = nop;
 			continue;
 		case OP_OVER:
@@ -326,7 +333,10 @@ uint8_t preprocess (FILE * script)
 			assert (ap + 1 > trace [stack [ap - 1]].num + 1);
 			move (& stack [ap - 1 - trace [stack [ap - 1]].num - 1], & stack [ap - 1]);
 			continue;
-		// OP_ROLL
+		case OP_ROLL:
+			assert (ap + 1 > trace [stack [ap - 1]].num + 1);
+			for (uint16_t Δap = trace [stack [-- ap]].num; Δap != 0; -- Δap) swap (& stack [ap - Δap - 1], & stack [ap - Δap + 0]);			
+			continue;
 		case OP_ROT:
 			assert (ap >= 3);
 			swap (& stack [ap - 3], & stack [ap - 2]);
@@ -601,421 +611,620 @@ void attach (uint16_t x)
 }
 typedef enum : char { LEEWAY, STRICT } workflow;
 // Permute stack elements
-uint16_t translate (FILE * script, const uint16_t * xₙ, uint8_t n, workflow s)
+void translate¹ (FILE * script, const uint16_t x₀, workflow s)
 {
-	if (n == 0) return 0;
-	// Decrement reference counter
-	for (uint8_t n⁺ = 0; n⁺ < n; ++ n⁺) if (trace [xₙ [n⁺]].reference) -- trace [xₙ [n⁺]].reference;
-	assert (n <= 2); // <--
-	uint16_t size = 0;
-	if (n == 1)
+	uint8_t op = nop;
+	uint16_t apₓ = find⁻¹ (x₀, stack, ap);
+	assert (apₓ < 1000);
+	uint16_t Δap = ap - apₓ - 1;
+	uint8_t dup₀ = trace [x₀].reference && count (x₀, stack, ap) == 1;
+	switch (Δap)
 	{
-		uint16_t x₀ = xₙ [0];
-		uint16_t apₓ = find⁻¹ (x₀, stack, ap);
-		assert (apₓ < 1000);
-		uint16_t Δap = ap - apₓ - 1;
-		if (trace [x₀].reference && count (x₀, stack, ap) == 1) switch (Δap)
-		{
-			case 0:
-				move (& stack [ap - 1], & stack [ap + 0]), ++ ap;
-				++ size, fprintf (script, "OP_DUP\n"); // fwrite (& OP_DUP, 1, 1, script)
-				break;
-			case 1:
+		case 0:
+			if (dup₀)
+			{
+				if (s == STRICT && ap >= 2)
+				{
+					swap (& stack [ap - 2], & stack [ap - 1]);
+					move (& stack [ap - 2], & stack [ap + 0]), ++ ap;
+					op = OP_TUCK, fwrite (& op, 1, 1, script);
+				}
+				else
+				{
+					move (& stack [ap - 1], & stack [ap + 0]), ++ ap;
+					op = OP_DUP, fwrite (& op, 1, 1, script);
+				}
+			}
+			break;
+		case 1:
+			if (dup₀)
+			{
 				move (& stack [ap - 2], & stack [ap + 0]), ++ ap;
-				++ size, fprintf (script, "OP_OVER\n"); // fwrite (& OP_OVER, 1, 1, script)
-				break;
-			default:
-				move (& stack [apₓ], & stack [ap + 0]), ++ ap;
-				++ size, fprintf (script, "%s%hu\n", Δap > 16 ? "" : "OP_", Δap); // <--
-				++ size, fprintf (script, "OP_PICK\n"); // fwrite (& OP_PICK, 1, 1, script)
-				break;
-		}
-		else switch (Δap)
-		{
-			case 0:
-				break;
-			case 1:
+				op = OP_OVER, fwrite (& op, 1, 1, script);
+			}
+			else
+			{
 				swap (& stack [ap - 2], & stack [ap - 1]);
-				++ size, fprintf (script, "OP_SWAP\n"); // fwrite (& OP_SWAP, 1, 1, script)
-				break;
-			case 2:
+				op = OP_SWAP, fwrite (& op, 1, 1, script);
+			}
+			break;
+		case 2:
+			if (dup₀)
+			{
+				move (& stack [ap - 3], & stack [ap + 0]), ++ ap;
+				op = OP_2, fwrite (& op, 1, 1, script);
+				op = OP_PICK, fwrite (& op, 1, 1, script);
+			}
+			else
+			{
 				swap (& stack [ap - 3], & stack [ap - 2]);
 				swap (& stack [ap - 2], & stack [ap - 1]);
-				++ size, fprintf (script, "OP_ROT\n"); // fwrite (& OP_ROT, 1, 1, script)
-				break;
-			default:
-				assert (0); // TODO: OP_ROLL
-				break; 
-		}
+				op = OP_ROT, fwrite (& op, 1, 1, script);
+			}
+			break;
+		default:
+			if (dup₀)
+			{
+				move (& stack [apₓ], & stack [ap + 0]), ++ ap;
+				if (Δap <= 16)
+				{
+					if (Δap == 0) op = OP_0;
+					else op = OP_RESERVED + Δap;
+					fwrite (& op, 1, 1, script);
+				}
+				else
+				{
+					uint8_t n = 4 - lzcnt (Δap) / 8;
+					fwrite (& n, 1, 1, script);
+					fwrite (& Δap, 1, n, script);
+				}
+				op = OP_PICK, fwrite (& op, 1, 1, script);
+			}
+			else
+			{
+				for (uint16_t apₓ = ap - Δap; apₓ < ap; ++ apₓ) swap (& stack [apₓ - 1], & stack [apₓ + 0]);
+				if (Δap <= 16)
+				{
+					if (Δap == 0) op = OP_0;
+					else op = OP_RESERVED + Δap;
+					fwrite (& op, 1, 1, script);
+				}
+				else
+				{
+					uint8_t n = 4 - lzcnt (Δap) / 8;
+					fwrite (& n, 1, 1, script);
+					fwrite (& Δap, 1, n, script);
+				}
+				op = OP_ROLL, fwrite (& op, 1, 1, script);
+			}
+			break;
 	}
-	if (n == 2)
+	assert (stack [ap - 1] == x₀);
+}
+// Permute stack elements
+void translate² (FILE * script, const uint16_t x₀, const uint16_t x₁, workflow s)
+{
+	uint8_t op = nop;
+	uint16_t xₙ [ ] = {x₀, x₁};
+	uint8_t dup₀ = trace [x₀].reference && count (x₀, stack, ap) == 1;
+	uint8_t dup₁ = trace [x₁].reference && count (x₁, stack, ap) == 1;
+	switch (check (xₙ, 2, & stack [ap - 2], 2))
 	{
-		uint16_t x₀ = xₙ [0];
-		uint16_t x₁ = xₙ [1];
-		uint8_t dup₀ = trace [x₀].reference && count (x₀, stack, ap) == 1;
-		uint8_t dup₁ = trace [x₁].reference && count (x₁, stack, ap) == 1;
-		switch (popcnt (check (xₙ, 2, & stack [ap - 2], 2)))
-		{
-			case 2:
-				if (dup₀ && dup₁)
-				{
-					move (& stack [ap - 2], & stack [ap]), ++ ap;
-					move (& stack [ap - 2], & stack [ap]), ++ ap;
-					++ size, fprintf (script, "OP_2DUP\n"); // fwrite (& OP_2DUP, 1, 1, script)
-				}
-				if (dup₀ != dup₁)
-				{
-					if (stack [ap - 1] == x₀ && dup₀
-					 || stack [ap - 1] == x₁ && dup₁)
-					{
-						swap (& stack [ap - 2], & stack [ap - 1]);
-						move (& stack [ap - 2], & stack [ap + 0]), ++ ap;
-						++ size, fprintf (script, "OP_TUCK\n"); // fwrite (& OP_TUCK, 1, 1, script)
-					}else
-					if (stack [ap - 2] == x₀ && dup₀
-					 || stack [ap - 2] == x₁ && dup₁)
-					{
-						move (& stack [ap - 2], & stack [ap + 0]), ++ ap;
-						++ size, fprintf (script, "OP_OVER\n"); // fwrite (& OP_OVER, 1, 1, script)
-					}
-				}
-				break;
-			case 1:
-				if (stack [ap - 2] == x₀ && dup₀
-				 || stack [ap - 2] == x₁ && dup₁)
-				{
-					move (& stack [ap - 2], & stack [ap + 0]), ++ ap;
-					++ size, fprintf (script, "OP_OVER\n"); // fwrite (& OP_OVER, 1, 1, script)
-				}else
-				if (stack [ap - 1] == x₀ && dup₀
-				 || stack [ap - 1] == x₁ && dup₁)
-				{
-					swap (& stack [ap - 2], & stack [ap - 1]);
-					move (& stack [ap - 2], & stack [ap + 0]), ++ ap;
-					++ size, fprintf (script, "OP_TUCK\n"); // fwrite (& OP_TUCK, 1, 1, script)
-				}else
-				if (stack [ap - 1] != x₀
-				 && stack [ap - 1] != x₁)
-				{
-					swap (& stack [ap - 2], & stack [ap - 1]);
-					++ size, fprintf (script, "OP_SWAP\n"); // fwrite (& OP_SWAP, 1, 1, script)
-				}
-			default:
-				assert (ap >= 3);
-				if (stack [ap - 3] == x₀
-				 || stack [ap - 3] == x₁)
-				{
-					swap (& stack [ap - 3], & stack [ap - 2]);
-					swap (& stack [ap - 2], & stack [ap - 1]);
-					++ size, fprintf (script, "OP_ROT\n"); // fwrite (& OP_ROT, 1, 1, script)
-				}
-				if (stack [ap - 1] != x₀ && stack [ap - 2] != x₀)
-				{
-					uint16_t apₓ = find⁻¹ (x₀, stack, ap);
-					assert (apₓ < 1000);
-					uint16_t Δap = ap - apₓ - 1;
-					if (dup₀)
-					{
-						move (& stack [apₓ], & stack [ap + 0]), ++ ap;
-						++ size, fprintf (script, "%s%hu\n", Δap > 16 ? "" : "OP_", Δap); // <--
-						++ size, fprintf (script, "OP_PICK\n"); // fwrite (& OP_PICK, 1, 1, script)
-					}
-					else
-					{
-						assert (0); // TODO: OP_ROLL
-					}
-				}
-				if (stack [ap - 1] != x₁ && stack [ap - 2] != x₁)
-				{
-					uint16_t apₓ = find⁻¹ (x₁, stack, ap);
-					assert (apₓ < 1000);
-					uint16_t Δap = ap - apₓ - 1;
-					if (dup₁)
-					{
-						move (& stack [apₓ], & stack [ap + 0]), ++ ap;
-						++ size, fprintf (script, "%s%hu\n", Δap > 16 ? "" : "OP_", Δap); // <--
-						++ size, fprintf (script, "OP_PICK\n"); // fwrite (& OP_PICK, 1, 1, script)
-					}
-					else
-					{
-						assert (0); // TODO: OP_ROLL
-					}
-				}
-				break;
-		}
-		if (s == STRICT && stack [ap - 1] == x₀)
-		{
-			swap (& stack [ap - 2], & stack [ap - 1]);
-			++ size, fprintf (script, "OP_SWAP\n"); // fwrite (& OP_SWAP, 1, 1, script)
-		}
+		case 0b11:
+			if (dup₀ && dup₁)
+			{
+				move (& stack [ap - 2], & stack [ap]), ++ ap;
+				move (& stack [ap - 2], & stack [ap]), ++ ap;
+				op = OP_2DUP, fwrite (& op, 1, 1, script);
+			}
+			else if (dup₀ || dup₁)
+			{
+				translate¹ (script, dup₀ ? x₀ : x₁, STRICT);
+				translate¹ (script, dup₀ ? x₁ : x₀, STRICT);
+			}
+			break;
+		case 0b10:
+			translate¹ (script, stack [ap - 1] == x₀ ? x₀ : x₁, STRICT);
+			translate¹ (script, stack [ap - 1] == x₀ ? x₁ : x₀, STRICT);
+			break;
+		case 0b01:
+			translate¹ (script, stack [ap - 2] == x₀ ? x₀ : x₁, STRICT);
+			translate¹ (script, stack [ap - 1] == x₀ ? x₁ : x₀, STRICT);
+			break;
+		default:
+			translate¹ (script, x₀, STRICT);
+			translate¹ (script, x₁, STRICT);
+			break;
 	}
-	return size;
+	if (s == STRICT && stack [ap - 1] == x₀)
+	{
+		swap (& stack [ap - 2], & stack [ap - 1]);
+		op = OP_SWAP, fwrite (& op, 1, 1, script);
+	}
+	assert (s == STRICT ? stack [ap - 1] == x₁ : stack [ap - 1] == x₁ || stack [ap - 2] == x₁);
+	assert (s == STRICT ? stack [ap - 2] == x₀ : stack [ap - 1] == x₀ || stack [ap - 2] == x₀);
+}
+// Permute stack elements
+void translate³ (FILE * script, uint16_t x₀, uint16_t x₁, uint16_t x₂, workflow s)
+{
+	uint8_t op = nop;
+	assert (ap >= 3);
+	uint16_t xₙ [ ] = { x₀, x₁, x₂ };
+	uint8_t dup₀ = trace [x₀].reference && count (x₀, stack, ap) == 1;
+	uint8_t dup₁ = trace [x₁].reference && count (x₁, stack, ap) == 1;
+	uint8_t dup₂ = trace [x₂].reference && count (x₂, stack, ap) == 1;
+	uint8_t dupₙ [ ] = { dup₀, dup₁, dup₂ };
+	switch (check (xₙ, 3, & stack [ap - 3], 3))
+	{
+		case 0b111:
+			if (dup₀ && dup₁ && dup₂)
+			{
+				move (& stack [ap - 3], & stack [ap]), ++ ap;
+				move (& stack [ap - 3], & stack [ap]), ++ ap;
+				move (& stack [ap - 3], & stack [ap]), ++ ap;
+				op = OP_3DUP, fwrite (& op, 1, 1, script);
+			}
+			else if (dup₀ || dup₁ || dup₂)
+			{
+				xₙ [find (x₀, & stack [ap - 3], 3)] = x₀;
+				xₙ [find (x₁, & stack [ap - 3], 3)] = x₁;
+				xₙ [find (x₂, & stack [ap - 3], 3)] = x₂;
+				translate² (script, xₙ [0], xₙ [1], s);
+				translate¹ (script, xₙ [2], s);
+			}
+			if (s == LEEWAY) break;
+			// if (stack [ap - 3] == x₀ && stack [ap - 2] == x₁ && stack [ap - 3] == x₂) break;
+			if (stack [ap - 3] == x₀ && stack [ap - 2] == x₂ && stack [ap - 1] == x₁)
+			{
+				swap (& stack [ap - 2], & stack [ap - 1]);
+				op = OP_SWAP, fwrite (& op, 1, 1, script);
+				break;
+			}
+			if (stack [ap - 3] == x₁ && stack [ap - 2] == x₀ && stack [ap - 1] == x₂)
+			{
+				swap (& stack [ap - 3], & stack [ap - 2]);
+				swap (& stack [ap - 2], & stack [ap - 1]);
+				op = OP_ROT, fwrite (& op, 1, 1, script);
+				swap (& stack [ap - 2], & stack [ap - 1]);
+				op = OP_SWAP, fwrite (& op, 1, 1, script);
+				break;
+			}
+			if (stack [ap - 3] == x₁ && stack [ap - 2] == x₂ && stack [ap - 1] == x₀)
+			{
+				swap (& stack [ap - 3], & stack [ap - 2]);
+				swap (& stack [ap - 2], & stack [ap - 1]);
+				op = OP_ROT, fwrite (& op, 1, 1, script);
+				swap (& stack [ap - 3], & stack [ap - 2]);
+				swap (& stack [ap - 2], & stack [ap - 1]);
+				op = OP_ROT, fwrite (& op, 1, 1, script);
+				break;
+			}
+			if (stack [ap - 3] == x₂ && stack [ap - 2] == x₀ && stack [ap - 1] == x₁)
+			{
+				swap (& stack [ap - 3], & stack [ap - 2]);
+				swap (& stack [ap - 2], & stack [ap - 1]);
+				op = OP_ROT, fwrite (& op, 1, 1, script);
+				break;
+			}
+			if (stack [ap - 3] == x₂ && stack [ap - 2] == x₁ && stack [ap - 1] == x₀)
+			{
+				swap (& stack [ap - 2], & stack [ap - 1]);
+				op = OP_SWAP, fwrite (& op, 1, 1, script);
+				swap (& stack [ap - 3], & stack [ap - 2]);
+				swap (& stack [ap - 2], & stack [ap - 1]);
+				op = OP_ROT, fwrite (& op, 1, 1, script);
+				break;
+			}
+			break;
+		case 0b011:
+			translate² (script, x₀, x₁, s);
+			translate¹ (script, x₂, s);
+			break;
+		case 0b101:
+			translate² (script, x₀, x₂, s);
+			translate¹ (script, x₁, s);
+			if (s == STRICT)
+			{
+				swap (& stack [ap - 2], & stack [ap - 1]);
+				op = OP_SWAP, fwrite (& op, 1, 1, script);
+			}
+			break;
+		case 0b110:
+			translate² (script, x₁, x₂, s);
+			translate¹ (script, x₀, s);
+			if (s == STRICT)
+			{
+				swap (& stack [ap - 3], & stack [ap - 2]);
+				swap (& stack [ap - 2], & stack [ap - 1]);
+				op = OP_ROT, fwrite (& op, 1, 1, script);
+				swap (& stack [ap - 3], & stack [ap - 2]);
+				swap (& stack [ap - 2], & stack [ap - 1]);
+				op = OP_ROT, fwrite (& op, 1, 1, script);
+			}
+			break;
+		case 0b001:
+			translate¹ (script, x₀, s);
+			translate² (script, x₁, x₂, s);
+			break;
+		case 0b010:
+			translate¹ (script, x₁, s);
+			translate² (script, x₀, x₂, s);
+			if (s == STRICT)
+			{
+				swap (& stack [ap - 3], & stack [ap - 2]);
+				swap (& stack [ap - 2], & stack [ap - 1]);
+				op = OP_ROT, fwrite (& op, 1, 1, script);
+				swap (& stack [ap - 2], & stack [ap - 1]);
+				op = OP_SWAP, fwrite (& op, 1, 1, script);
+			}
+			break;
+		case 0b100:
+			translate¹ (script, x₂, s);
+			translate² (script, x₀, x₁, s);
+			if (s == STRICT)
+			{
+				swap (& stack [ap - 3], & stack [ap - 2]);
+				swap (& stack [ap - 2], & stack [ap - 1]);
+				op = OP_ROT, fwrite (& op, 1, 1, script);
+			}
+			break;
+		default:
+			translate¹ (script, x₀, s);
+			translate¹ (script, x₁, s);
+			translate¹ (script, x₂, s);
+			break;
+	}
+	assert (s == STRICT ? stack [ap - 1] == x₂ : stack [ap - 1] == x₂ || stack [ap - 2] == x₂ || stack [ap - 3] == x₂);
+	assert (s == STRICT ? stack [ap - 2] == x₁ : stack [ap - 1] == x₁ || stack [ap - 2] == x₁ || stack [ap - 3] == x₁);
+	assert (s == STRICT ? stack [ap - 3] == x₀ : stack [ap - 1] == x₀ || stack [ap - 2] == x₀ || stack [ap - 3] == x₀);
 }
 // Flush Bitcoin script
-uint16_t serialize (FILE * script, uint16_t xₙ [ ], uint8_t n, workflow s)
+void serialize (FILE * script, const uint16_t xₙ [ ], uint8_t n, workflow s);
+// Flush Bitcoin script
+void serialize⁺ (FILE * script, uint16_t x₀, workflow s)
 {
-	uint16_t size = 0; // Byte length
+	uint8_t op = nop;
+	// Compute x₀
+	switch (op = trace [x₀].code)
+	{
+		case OP_0:
+			assert (OP_0 == x₀);
+			assert (stack [ap] == nop);
+			assert (trace [x₀].reference == 0);
+			move (& x₀, & stack [ap ++]);
+			fwrite (& op, 1, 1, script);
+			break;
+		case 1:
+		case 2:
+		case 3:
+		case 4:
+			assert (trace [x₀].reference != 0);
+			if (find⁻¹ (x₀, stack, ap) < 1000) break;
+			assert (trace [x₀].num > 16 || trace [x₀].num <= -1);
+			assert (trace [x₀].num < +2147483648); // x₀ < +2³¹
+			assert (trace [x₀].num > -2147483648); // x₀ > -2³¹
+			assert (stack [ap] == nop);
+			move (& x₀, & stack [ap ++]);
+			if (trace [x₀].num <= 16)
+			{
+				if (trace [x₀].num == 0) op = OP_0;
+				else op = OP_RESERVED + trace [x₀].num;
+				fwrite (& op, 1, 1, script);
+			}
+			else
+			{
+				uint8_t n = 4 - lzcnt (trace [x₀].num) / 8;
+				fwrite (& n, 1, 1, script);
+				fwrite (& trace [x₀].num, 1, n, script);
+			}
+			break;
+		// ⋯
+		// OP_PUSHDATA1
+		// OP_PUSHDATA2
+		// OP_PUSHDATA4
+		// OP_1NEGATE
+		case OP_RESERVED:
+			assert (trace [x₀].reference != 0);
+			if (find⁻¹ (x₀, stack, ap) < 1000) break;
+			move (& x₀, & stack [ap ++]);
+			break;
+		case OP_1:
+		case OP_2:
+		case OP_3:
+		case OP_4:
+		case OP_5:
+		case OP_6:
+		case OP_7:
+		case OP_8:
+		case OP_9:
+		case OP_10:
+		case OP_11:
+		case OP_12:
+		case OP_13:
+		case OP_14:
+		case OP_15:
+		case OP_16:
+			assert (stack [ap] == nop);
+			assert (trace [x₀].code == x₀);
+			assert (trace [x₀].reference == 0);
+			move (& x₀, & stack [ap ++]);
+			if (trace [x₀].num <= 16)
+			{
+				if (trace [x₀].num == 0) op = OP_0;
+				else op = OP_RESERVED + trace [x₀].num;
+				fwrite (& op, 1, 1, script);
+			}
+			else
+			{
+				uint8_t n = 4 - lzcnt (trace [x₀].num) / 8;
+				fwrite (& n, 1, 1, script);
+				fwrite (& trace [x₀].num, 1, n, script);
+			}
+			break;
+		case OP_NOP:
+			fwrite (& op, 1, 1, script);
+			break;
+		// OP_VER
+		case OP_IF:
+			assert (trace [x₀].reference != 0);
+			if (find⁻¹ (x₀, stack, ap) < 1000) break;
+			serialize (script, trace [x₀].xₙ, 3, STRICT);
+			assert (ap >= 3);
+			assert (stack [ap - 1] == trace [x₀].x₂);
+			assert (stack [ap - 2] == trace [x₀].x₁);
+			assert (stack [ap - 3] == trace [x₀].x₀);
+			move (& nop, & stack [-- ap]);
+			move (& nop, & stack [-- ap]);
+			move (& x₀, & stack [ap - 1]);
+			op = OP_IF, fwrite (& op, 1, 1, script);
+			op = OP_NIP, fwrite (& op, 1, 1, script);
+			op = OP_ELSE, fwrite (& op, 1, 1, script);
+			op = OP_DROP, fwrite (& op, 1, 1, script);
+			op = OP_ENDIF, fwrite (& op, 1, 1, script);
+			break;
+		// OP_NOTIF
+		// OP_VERIF
+		// OP_VERNOTIF
+		// OP_ELSE
+		// OP_ENDIF
+		// OP_VERIFY
+		// OP_RETURN
+		// OP_TOALTSTACK
+		// OP_FROMALTSTACK
+		// OP_2DROP
+		// OP_2DUP
+		// OP_3DUP
+		// OP_2OVER
+		// OP_2ROT
+		// OP_2SWAP
+		// OP_IFDUP
+		// OP_DEPTH
+		// OP_DROP
+		// OP_DUP
+		// OP_NIP
+		// OP_OVER
+		// OP_PICK
+		// OP_ROLL
+		// OP_ROT
+		// OP_SWAP
+		// OP_TUCK
+		// OP_CAT
+		// OP_SUBSTR
+		// OP_LEFT
+		// OP_RIGHT
+		// OP_SIZE
+		// OP_INVERT
+		// OP_AND
+		// OP_OR
+		// OP_XOR
+		// OP_EQUAL
+		// OP_EQUALVERIFY
+		// OP_RESERVED1
+		// OP_RESERVED2
+		case OP_1ADD:
+		case OP_1SUB:
+		case OP_2MUL:
+			assert (trace [x₀].reference != 0);
+			if (find⁻¹ (x₀, stack, ap) < 1000) break;
+			assert (ap >= 1);
+			assert (stack [ap - 1] == trace [x₀].x₀);
+			serialize (script, trace [x₀].xₙ, 1, LEEWAY);
+			move (& x₀, & stack [ap - 1]);
+			op = OP_DUP, fwrite (& op, 1, 1, script);
+			op = OP_ADD, fwrite (& op, 1, 1, script);
+			break;
+		case OP_2DIV:
+		case OP_NEGATE:
+		case OP_ABS:
+		case OP_NOT:
+		case OP_0NOTEQUAL:
+			assert (trace [x₀].reference != 0);
+			if (find⁻¹ (x₀, stack, ap) < 1000) break;
+			serialize (script, trace [x₀].xₙ, 1, LEEWAY);
+			assert (ap >= 1);
+			assert (stack [ap - 1] == trace [x₀].x₀);
+			move (& x₀, & stack [ap - 1]);
+			fwrite (& op, 1, 1, script);
+			break;
+		case OP_ADD:
+			assert (trace [x₀].reference != 0);
+			if (find⁻¹ (x₀, stack, ap) < 1000) break;
+			serialize (script, trace [x₀].xₙ, 2, LEEWAY);
+			assert (ap >= 2);
+			assert (check (trace [x₀].xₙ, 2, & stack [ap - 2], 2) == (1 << 2) - 1);
+			move (& nop, & stack [-- ap]);
+			move (& x₀, & stack [ap - 1]);
+			fwrite (& op, 1, 1, script);
+			break;
+		case OP_SUB:
+			assert (trace [x₀].reference != 0);
+			if (find⁻¹ (x₀, stack, ap) < 1000) break;
+			serialize (script, trace [x₀].xₙ, 2, STRICT);
+			assert (ap >= 2);
+			assert (stack [ap - 1] == trace [x₀].x₁);
+			assert (stack [ap - 2] == trace [x₀].x₀);
+			move (& nop, & stack [-- ap]);
+			move (& x₀, & stack [ap - 1]);
+			fwrite (& op, 1, 1, script);
+			break;
+		// OP_MUL
+		// OP_DIV
+		// OP_MOD
+		// OP_LSHIFT
+		// OP_RSHIFT
+		case OP_BOOLAND:
+		case OP_BOOLOR:
+		case OP_NUMEQUAL:
+		case OP_NUMEQUALVERIFY:
+		case OP_NUMNOTEQUAL:
+			assert (trace [x₀].reference != 0);
+			if (find⁻¹ (x₀, stack, ap) < 1000) break;
+			serialize (script, trace [x₀].xₙ, 2, LEEWAY);
+			assert (ap >= 2);
+			assert (check (trace [x₀].xₙ, 2, & stack [ap - 2], 2) == (1 << 2) - 1);
+			move (& nop, & stack [-- ap]);
+			move (& x₀, & stack [ap - 1]);
+			fwrite (& op, 1, 1, script);
+			break;
+		case OP_LESSTHAN:
+		case OP_GREATERTHAN:
+		case OP_LESSTHANOREQUAL:
+		case OP_GREATERTHANOREQUAL:
+			assert (trace [x₀].reference != 0);
+			if (find⁻¹ (x₀, stack, ap) < 1000) break;
+			serialize (script, trace [x₀].xₙ, 2, STRICT);
+			assert (ap >= 2);
+			assert (stack [ap - 1] == trace [x₀].x₁);
+			assert (stack [ap - 2] == trace [x₀].x₀);
+			move (& nop, & stack [-- ap]);
+			move (& x₀, & stack [ap - 1]);
+			fwrite (& op, 1, 1, script);
+			break;
+		case OP_MIN:
+		case OP_MAX:
+			assert (trace [x₀].reference != 0);
+			if (find⁻¹ (x₀, stack, ap) < 1000) break;
+			serialize (script, trace [x₀].xₙ, 2, LEEWAY);
+			assert (ap >= 2);
+			assert (check (trace [x₀].xₙ, 2, & stack [ap - 2], 2) == (1 << 2) - 1);
+			move (& nop, & stack [-- ap]);
+			move (& x₀, & stack [ap - 1]);
+			fwrite (& op, 1, 1, script);
+			break;
+		case OP_WITHIN:
+			assert (trace [x₀].reference != 0);
+			if (find⁻¹ (x₀, stack, ap) < 1000) break;
+			serialize (script, trace [x₀].xₙ, 3, STRICT);
+			assert (ap >= 3);
+			assert (stack [ap - 1] == trace [x₀].x₂);
+			assert (stack [ap - 2] == trace [x₀].x₁);
+			assert (stack [ap - 3] == trace [x₀].x₀);
+			move (& nop, & stack [-- ap]);
+			move (& nop, & stack [-- ap]);
+			move (& x₀, & stack [ap - 1]);
+			fwrite (& op, 1, 1, script);
+			break;
+		// OP_RIPEMD160
+		// OP_SHA1
+		// OP_SHA256
+		// OP_HASH160
+		// OP_HASH256
+		// OP_CODESEPARATOR
+		// OP_CHECKSIG
+		// OP_CHECKSIGVERIFY
+		// OP_CHECKMULTISIG
+		// OP_CHECKMULTISIGVERIFY
+		// OP_NOP1
+		// OP_NOP2
+		// OP_NOP3
+		// OP_NOP4
+		// OP_NOP5
+		// OP_NOP6
+		// OP_NOP7
+		// OP_NOP8
+		// OP_NOP9
+		// OP_NOP10
+		// OP_CHECKSIGADD
+		// ⋯
+		default:
+			break; // WARNING
+	}
+}
+// Flush Bitcoin script
+void serialize⁻¹ (FILE * script, const uint16_t xₙ [ ], uint8_t n, workflow s)
+{
+	assert (n >= 4);
+	uint8_t op = nop;
 	// Compute x₀ ⋯ xₙ₋₁
 	for (uint8_t n⁺ = 0; n⁺ < n; ++ n⁺)
 	{
-		uint16_t x = xₙ [n⁺];
-		uint16_t apₓ = find⁻¹ (x, stack, ap);
-		// Compute x
-		switch (trace [x].code)
-		{
-			case OP_0:
-				assert (OP_0 == x);
-				assert (stack [ap] == nop);
-				assert (trace [x].reference == 0);
-				move (& x, & stack [ap ++]);
-				++ size, fprintf (script, "OP_0\n"); // fwrite (& OP_0, 1, 1, script)
-				break;
-			case 1:
-			case 2:
-			case 3:
-			case 4:
-				assert (trace [x].reference != 0);
-				if (apₓ < 1000) break;
-				assert (trace [x].num > 16 || trace [x].num <= -1);
-				assert (trace [x].num < +2147483648); // x < +2³¹
-				assert (trace [x].num > -2147483648); // x > -2³¹
-				assert (stack [ap] == nop);
-				move (& x, & stack [ap ++]);
-				++ size, size += trace [x].code, fprintf (script, "%lli\n", trace [x].num);
-				break;
-			// ⋯
-			// OP_PUSHDATA1
-			// OP_PUSHDATA2
-			// OP_PUSHDATA4
-			// OP_1NEGATE
-			case OP_RESERVED:
-				assert (trace [x].reference != 0);
-				if (apₓ < 1000) break;
-				move (& x, & stack [ap ++]);
-				break;
-			case OP_1:
-			case OP_2:
-			case OP_3:
-			case OP_4:
-			case OP_5:
-			case OP_6:
-			case OP_7:
-			case OP_8:
-			case OP_9:
-			case OP_10:
-			case OP_11:
-			case OP_12:
-			case OP_13:
-			case OP_14:
-			case OP_15:
-			case OP_16:
-				assert (stack [ap] == nop);
-				assert (trace [x].code == x);
-				assert (trace [x].reference == 0);
-				move (& x, & stack [ap ++]);
-				++ size, fprintf (script, "%s%lli\n", trace [x].num > 16 ? "" : "OP_", trace [x].num);
-				break;
-			case OP_NOP:
-				++ size, fprintf (script, "OP_NOP\n"); // fwrite (& OP_NOP, 1, 1, script)
-				break;
-			// OP_VER
-			case OP_IF:
-				assert (trace [x].reference != 0);
-				if (apₓ < 1000) break;
-				size += serialize (script, trace [x].xₙ, 3, STRICT);
-				assert (ap >= 3);
-				assert (stack [ap - 1] == trace [x].x₂);
-				assert (stack [ap - 2] == trace [x].x₁);
-				assert (stack [ap - 3] == trace [x].x₀);
-				move (& nop, & stack [-- ap]);
-				move (& nop, & stack [-- ap]);
-				move (& x, & stack [ap - 1]);
-				++ size, fprintf (script, "OP_IF\n"); // fwrite (& OP_IF, 1, 1, script)
-				++ size, fprintf (script, "OP_NIP\n"); // fwrite (& OP_NIP, 1, 1, script)
-				++ size, fprintf (script, "OP_ELSE\n"); // fwrite (& OP_ELSE, 1, 1, script)
-				++ size, fprintf (script, "OP_DROP\n"); // fwrite (& OP_DROP, 1, 1, script)
-				++ size, fprintf (script, "OP_ENDIF\n"); // fwrite (& OP_ENDIF, 1, 1, script)
-				break;
-			// OP_NOTIF
-			// OP_VERIF
-			// OP_VERNOTIF
-			// OP_ELSE
-			// OP_ENDIF
-			// OP_VERIFY
-			// OP_RETURN
-			// OP_TOALTSTACK
-			// OP_FROMALTSTACK
-			// OP_2DROP
-			// OP_2DUP
-			// OP_3DUP
-			// OP_2OVER
-			// OP_2ROT
-			// OP_2SWAP
-			// OP_IFDUP
-			// OP_DEPTH
-			// OP_DROP
-			// OP_DUP
-			// OP_NIP
-			// OP_OVER
-			// OP_PICK
-			// OP_ROLL
-			// OP_ROT
-			// OP_SWAP
-			// OP_TUCK
-			// OP_CAT
-			// OP_SUBSTR
-			// OP_LEFT
-			// OP_RIGHT
-			// OP_SIZE
-			// OP_INVERT
-			// OP_AND
-			// OP_OR
-			// OP_XOR
-			// OP_EQUAL
-			// OP_EQUALVERIFY
-			// OP_RESERVED1
-			// OP_RESERVED2
-			case OP_1ADD:
-			case OP_1SUB:
-			case OP_2MUL:
-				assert (trace [x].reference != 0);
-				if (apₓ < 1000) break;
-				assert (ap >= 1);
-				assert (stack [ap - 1] == trace [x].x₀);
-				size += serialize (script, trace [x].xₙ, 1, LEEWAY);
-				move (& x, & stack [ap - 1]);
-				++ size, fprintf (script, "OP_DUP\n"); // fwrite (& OP_DUP, 1, 1, script)
-				++ size, fprintf (script, "OP_ADD\n"); // fwrite (& OP_ADD, 1, 1, script)
-				continue;
-			case OP_2DIV:
-			case OP_NEGATE:
-			case OP_ABS:
-			case OP_NOT:
-			case OP_0NOTEQUAL:
-				assert (trace [x].reference != 0);
-				if (apₓ < 1000) break;
-				size += serialize (script, trace [x].xₙ, 1, LEEWAY);
-				assert (ap >= 1);
-				assert (stack [ap - 1] == trace [x].x₀);
-				move (& x, & stack [ap - 1]);
-				++ size;{const char*OP[]={"1ADD","1SUB","2MUL","2DIV","NEGATE","ABS","NOT","0NOTEQUAL"};fprintf(script,"OP_%s\n",OP[trace[x].code-OP_1ADD]);}
-				break;
-			case OP_ADD:
-				assert (trace [x].reference != 0);
-				if (apₓ < 1000) break;
-				size += serialize (script, trace [x].xₙ, 2, LEEWAY);
-				assert (ap >= 2);
-				assert (check (trace [x].xₙ, 2, & stack [ap - 2], 2) == (1 << 2) - 1);
-				move (& nop, & stack [-- ap]);
-				move (& x, & stack [ap - 1]);
-				++ size, fprintf (script, "OP_ADD\n"); // fwrite (& OP_ADD, 1, 1, script)
-				break;
-			case OP_SUB:
-				assert (trace [x].reference != 0);
-				if (apₓ < 1000) break;
-				size += serialize (script, trace [x].xₙ, 2, STRICT);
-				assert (ap >= 2);
-				assert (stack [ap - 1] == trace [x].x₁);
-				assert (stack [ap - 2] == trace [x].x₀);
-				move (& nop, & stack [-- ap]);
-				move (& x, & stack [ap - 1]);
-				++ size, fprintf (script, "OP_SUB\n"); // fwrite (& OP_SUB, 1, 1, script)
-				break;
-			// OP_MUL
-			// OP_DIV
-			// OP_MOD
-			// OP_LSHIFT
-			// OP_RSHIFT
-			case OP_BOOLAND:
-			case OP_BOOLOR:
-			case OP_NUMEQUAL:
-			case OP_NUMEQUALVERIFY:
-			case OP_NUMNOTEQUAL:
-				assert (trace [x].reference != 0);
-				if (apₓ < 1000) break;
-				size += serialize (script, trace [x].xₙ, 2, LEEWAY);
-				assert (ap >= 2);
-				assert (check (trace [x].xₙ, 2, & stack [ap - 2], 2) == (1 << 2) - 1);
-				move (& nop, & stack [-- ap]);
-				move (& x, & stack [ap - 1]);
-				++ size;{const char*OP[]={"BOOLAND","BOOLOR","NUMEQUAL","NUMEQUALVERIFY","NUMNOTEQUAL"};fprintf(script,"OP_%s\n",OP[trace[x].code-OP_BOOLAND]);}
-				break;
-			case OP_LESSTHAN:
-			case OP_GREATERTHAN:
-			case OP_LESSTHANOREQUAL:
-			case OP_GREATERTHANOREQUAL:
-				assert (trace [x].reference != 0);
-				if (apₓ < 1000) break;
-				size += serialize (script, trace [x].xₙ, 2, STRICT);
-				assert (ap >= 2);
-				assert (stack [ap - 1] == trace [x].x₁);
-				assert (stack [ap - 2] == trace [x].x₀);
-				move (& nop, & stack [-- ap]);
-				move (& x, & stack [ap - 1]);
-				++ size;{const char*OP[]={"LESSTHAN","GREATERTHAN","LESSTHANOREQUAL","GREATERTHANOREQUAL"};fprintf(script,"OP_%s\n",OP[trace[x].code-OP_LESSTHAN]);}
-				break;
-			case OP_MIN:
-			case OP_MAX:
-				assert (trace [x].reference != 0);
-				if (apₓ < 1000) break;
-				size += serialize (script, trace [x].xₙ, 2, LEEWAY);
-				assert (ap >= 2);
-				assert (check (trace [x].xₙ, 2, & stack [ap - 2], 2) == (1 << 2) - 1);
-				move (& nop, & stack [-- ap]);
-				move (& x, & stack [ap - 1]);
-				++ size, fprintf (script, "OP_%s\n", trace [x].code == OP_MIN ? "MIN" : "MAX"); // fwrite (& op, 1, 1, script)
-				break;
-			case OP_WITHIN:
-				assert (trace [x].reference != 0);
-				if (apₓ < 1000) break;
-				size += serialize (script, trace [x].xₙ, 3, STRICT);
-				assert (ap >= 3);
-				assert (stack [ap - 1] == trace [x].x₂);
-				assert (stack [ap - 2] == trace [x].x₁);
-				assert (stack [ap - 3] == trace [x].x₀);
-				move (& nop, & stack [-- ap]);
-				move (& nop, & stack [-- ap]);
-				move (& x, & stack [ap - 1]);
-				++ size, fprintf (script, "OP_WITHIN\n"); // fwrite (& OP_WITHIN, 1, 1, script)
-				break;
-			// OP_RIPEMD160
-			// OP_SHA1
-			// OP_SHA256
-			// OP_HASH160
-			// OP_HASH256
-			// OP_CODESEPARATOR
-			// OP_CHECKSIG
-			// OP_CHECKSIGVERIFY
-			// OP_CHECKMULTISIG
-			// OP_CHECKMULTISIGVERIFY
-			// OP_NOP1
-			// OP_NOP2
-			// OP_NOP3
-			// OP_NOP4
-			// OP_NOP5
-			// OP_NOP6
-			// OP_NOP7
-			// OP_NOP8
-			// OP_NOP9
-			// OP_NOP10
-			// OP_CHECKSIGADD
-			// ⋯
-			default:
-				break; // WARNING
-		}
+		uint16_t x = xₙ [n - n⁺ - 1];
+		serialize⁺ (script, x, s);
+		if (trace [x].reference) -- trace [x].reference;
+		translate¹ (script, x, s);
+		move (& stack [ap - 1], & stack [ap⁻¹ --]);
+		move (& nop, & stack [-- ap]);
+		op = OP_TOALTSTACK, fwrite (& op, 1, 1, script);
 	}
-	size += translate (script, xₙ, min (n, 2), s);
-	size += translate (script, xₙ+2, max (n, 2) - 2, s); // <--
-	return size;
+	for (uint8_t n⁺ = 1; n⁺ < n; ++ n⁺)
+	{
+		assert (ap⁻¹ < 999);
+		move (& stack [++ ap⁻¹], & stack [ap ++]);
+		move (& nop, & stack [ap⁻¹ + 0]);
+		op = OP_FROMALTSTACK, fwrite (& op, 1, 1, script);
+	}
 }
-# include "fcntl.h"
-# include "io.h"
-// clang sherlock.c -o sherlock.exe
+// Flush Bitcoin script
+void serialize (FILE * script, const uint16_t xₙ [ ], uint8_t n, workflow s)
+{
+	// Compute x₀ ⋯ xₙ₋₁
+	switch (n)
+	{
+		case 1:
+			// Compute x₀
+			serialize⁺ (script, xₙ [0], s);
+			if (trace [xₙ [0]].reference) -- trace [xₙ [0]].reference;
+			// Permute stack elements
+			translate¹ (script, xₙ [0], s);
+			break;
+		case 2:
+			// Compute x₀ ⋯ x₁
+			serialize⁺ (script, xₙ [0], s);
+			serialize⁺ (script, xₙ [1], s);
+			if (trace [xₙ [0]].reference) -- trace [xₙ [0]].reference;
+			if (trace [xₙ [1]].reference) -- trace [xₙ [1]].reference;
+			// Permute stack elements
+			translate² (script, xₙ [0], xₙ [1], s);
+			break;
+		case 3:
+			// Compute x₀ ⋯ x₂
+			serialize⁺ (script, xₙ [0], s);
+			serialize⁺ (script, xₙ [1], s);
+			serialize⁺ (script, xₙ [2], s);
+			if (trace [xₙ [0]].reference) -- trace [xₙ [0]].reference;
+			if (trace [xₙ [1]].reference) -- trace [xₙ [1]].reference;
+			if (trace [xₙ [2]].reference) -- trace [xₙ [2]].reference;
+			// Permute stack elements
+			translate³ (script, xₙ [0], xₙ [1], xₙ [2], s);
+			break;
+		default:
+			// Compute x₀ ⋯ xₙ₋₁
+			serialize⁻¹ (script, xₙ, n, s);
+			break;
+	}
+}
+// $ clang sherlock.c -o sherlock
+// > clang sherlock.c -o sherlock.exe
 int main (void)
 {
+	freopen (NULL, "rb", stdin); // _setmode (_fileno (stdin), _O_BINARY)
+	freopen (NULL, "wb", stdout); // _setmode (_fileno (stdout), _O_BINARY)
+	freopen (NULL, "wb", stderr); // _setmode (_fileno (stderr), _O_BINARY)
 	// Trace script
-	_setmode (_fileno (stdin), _O_BINARY);
 	uint8_t op = preprocess (stdin);
+	// const char msg [ ] = "\n";
+	// fwrite (msg, 1, sizeof msg - 1, stderr);
+	// fflush (stderr);
 	assert (op == OP_NOP);
 	// Mark result(s)
 	uint16_t xₙ [0x45] = { [0 ... 0x44] = nop };	
@@ -1027,7 +1236,8 @@ int main (void)
 	// Push variable(s)
 	for (uint16_t x = x₀; trace [x].code == OP_RESERVED; ++ x) move (& x, & stack [ap ++]);
 	// Flush Bitcoin script
-	uint16_t size = serialize (stdout, xₙ, n, LEEWAY);
+	serialize (stdout, xₙ, n, LEEWAY);
 	assert (ap == n);
+	for (uint16_t _ = 0; _ < n; ++ _) assert (stack [ap - n + _] == xₙ [_]);
 	return 0;
 }
