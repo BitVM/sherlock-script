@@ -234,8 +234,7 @@ int main (int argc, const char * argv [ ])
 		while (STDERR (& char⁻, 1)) printf ("%c", char⁻);
 	}
 	// Show Bitcoin script
-	unsigned char char⁺;
-	while (STDOUT (& char⁺, 1))
+	for (uint8_t char⁺; STDOUT (& char⁺, 1); )
 	{
 		if (char⁺ == 1 || char⁺ == 2 || char⁺ == 3 || char⁺ == 4)
 		{
