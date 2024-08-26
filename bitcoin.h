@@ -1,4 +1,5 @@
 # include "stdint.h"
+# include "assert.h"
 enum : uint8_t
 {
 	OP_0 = 0x00, OP_PUSHDATA1 = 0x4c, OP_PUSHDATA2, OP_PUSHDATA4, OP_1NEGATE, OP_RESERVED, OP_1, OP_2, OP_3, OP_4, OP_5, OP_6, OP_7,
@@ -11,3 +12,68 @@ enum : uint8_t
 	OP_RIPEMD160, OP_SHA1, OP_SHA256, OP_HASH160, OP_HASH256, OP_CODESEPARATOR, OP_CHECKSIG, OP_CHECKSIGVERIFY, OP_CHECKMULTISIG,
 	OP_CHECKMULTISIGVERIFY, OP_NOP1, OP_NOP2, OP_NOP3, OP_NOP4, OP_NOP5, OP_NOP6, OP_NOP7, OP_NOP8, OP_NOP9, OP_NOP10, OP_CHECKSIGADD
 };
+uint32_t __builtin_stack [1000] = { [0 ... 999] = 0x80000000 };
+uint16_t __builtin_ap = 0, __builtin_ap⁻¹ = 999; // Stack allocation pointer
+void __builtin_push (uint32_t x₀)
+{
+	assert (__builtin_ap <= __builtin_ap⁻¹);
+	__builtin_stack [__builtin_ap ++] = x₀;
+}
+uint32_t __builtin_drop (void) // OP_DROP
+# define __builtin_drop __builtin_drop ( )
+{
+	assert (__builtin_ap >= 1);
+	return __builtin_stack [-- __builtin_ap];
+}
+void __builtin_pick (uint16_t Δap) // Δap OP_PICK
+{
+	assert (Δap < __builtin_ap);
+	uint32_t xᵢ = __builtin_stack [__builtin_ap - Δap - 1];
+	__builtin_stack [__builtin_ap ++] = xᵢ;
+}
+# define __builtin_over __builtin_pick (1) // OP_OVER
+void __builtin_roll (uint16_t Δap) // Δap OP_ROLL
+{
+	assert (Δap < __builtin_ap);
+	uint32_t xᵢ = __builtin_stack [__builtin_ap - Δap - 1];
+	memmove (__builtin_stack + __builtin_ap - Δap - 1,
+	         __builtin_stack + __builtin_ap - Δap, sizeof (uint32_t) * Δap);
+	__builtin_stack [__builtin_ap - 1] = xᵢ;
+}
+# define __builtin_swap __builtin_roll (1) // OP_SWAP
+uint32_t __builtin_find (uint32_t xᵢ)
+{
+	for (uint16_t apₓ = __builtin_ap; apₓ != 0; -- apₓ) if (__builtin_stack [apₓ - 1] == xᵢ) return apₓ - 1;
+	return 0x80000000;
+}
+uint64_t __builtin_check (const uint32_t * xₙ, uint8_t n)
+{
+	uint64_t flag = 0x0000000000000000;
+	for (uint8_t idx = 0; idx < n; ++ idx)
+	for (uint16_t ap = 0; ap < __builtin_ap; ++ ap)
+	{
+		if (__builtin_stack [ap] == xₙ [idx] && idx < 64) flag |= 1 << idx;
+	}
+	return flag;
+}
+uint64_t __builtin_check⁻¹ (const uint32_t * xₙ, uint8_t n)   
+{
+	uint64_t flag = 0x0000000000000000;
+	while (n --> 0) // assert ap ≤ 32
+	{
+		uint32_t apₓ = __builtin_find (* xₙ ++);
+		if (apₓ == 0x80000000) continue;
+		uint32_t Δap = __builtin_ap - apₓ - 1;
+		if (Δap < 64) flag |= (uint64_t) 1 << Δap;
+	}
+	return flag;
+}
+uint8_t __builtin_count (uint32_t x₀)
+{
+	uint8_t cnt = 0;
+	for (uint16_t ap = 0; ap < __builtin_ap; ++ ap)
+	{
+		if (__builtin_stack [ap] == x₀) ++ cnt;
+	}
+	return cnt;
+}

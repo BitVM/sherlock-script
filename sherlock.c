@@ -10,84 +10,6 @@
 # ifndef max
 # define max(x₀, x₁) ((x₀) > (x₁) ? (x₀) : (x₁))
 # endif
-// move（$ ¥）:｛$ ¥｝→｛$ $｝
-void move (const uint16_t * lhs, uint16_t * rhs)
-{
-	* rhs = * lhs; // --->
-}
-// swap（$ ¥）💱｛$ ¥｝→｛¥ $｝
-void swap (uint16_t * lhs, uint16_t * rhs)
-{
-	uint16_t tmp = * lhs;
-	* lhs = * rhs; // <----
-	* rhs = tmp;  // ---->
-}
-// lzcnt（0x00000000）→ undefined
-# define lzcnt(uint32_t) (uint8_t)__builtin_clz(uint32_t)
-// tzcnt（0x00000000）→ undefined
-# define tzcnt(uint32_t) (uint8_t)__builtin_ctz(uint32_t)
-// popcnt（0xFFFFFFFF）→ 32
-# define popcnt(uint32_t) (uint8_t)__builtin_popcount(uint32_t)
-# define blsi(uint32_t) (uint32_t) ? 1 << tzcnt (uint32_t) : 0
-# define blsmsk(uint32_t) (uint32_t) ^ (uint32_t) - 1
-# define blsr(uint32_t) (uint32_t) & (uint32_t) - 1
-// find（xᵢ｛x₀⋯xₙ₋₁｝n）→ i
-uint16_t find (const uint16_t x, const uint16_t * xₙ, uint8_t n)
-{
-	for (uint16_t i = 0; n --> 0; ++ i)
-	{
-		// NOTE: First index provided
-		if (x == * xₙ ++) return i;
-	}
-	// NOTE: 2³²⁷⁶⁸ <=>  1 << 2¹⁵  <=>  0
-	return 0x8000; // 2¹⁵  <=>  32768
-}
-uint16_t find⁻¹ (const uint16_t x, const uint16_t * xₙ, uint8_t n)
-{
-	uint16_t idx = 0x8000; // 2¹⁵  <=>  32768
-	// NOTE: 2³²⁷⁶⁸ <=>  1 << 2¹⁵  <=>  0
-	for (uint16_t i = 0; n --> 0; ++ i)
-	{
-		if (x == * xₙ ++) idx = i;
-	}
-	// NOTE: Last index provided
-	return idx;
-}
-// NOTE: check（xₙ n xₘ m）⩵（1 << n）- 1  <=>  popcnt（check（xₙ n xₘ m））⩵ n
-uint32_t check (const uint16_t * xₙ, uint8_t n, const uint16_t * xₘ, uint8_t m)
-{
-	uint32_t flag = 0x00000000;
-	while (m --> 0) // assert n ≤ 32
-	{
-		uint16_t _ = find (* xₘ ++, xₙ, n);
-		// flag |= 1 << min (16, _);
-		if (_ != 0x8000) flag |= 1 << _;
-	}
-	// NOTE: find（x₀ xₙ n）→ 2¹⁵ ❓
-	return flag;
-}
-uint32_t check⁻¹ (const uint16_t * xₙ, uint8_t n, const uint16_t * xₘ, uint8_t m)
-{
-	uint32_t flag = 0x00000000;
-	while (m --> 0) // assert n ≤ 32
-	{
-		uint16_t _ = find⁻¹ (* xₘ ++, xₙ, n);
-		// flag |= 1 << min (16, _);
-		if (_ != 0x8000) flag |= 1 << _;
-	}
-	// NOTE: find（x₀ xₙ n）→ 2¹⁵ ❓
-	return flag;
-}
-// NOTE: count（x₀ xₙ n）≠ 0  <=>  popcnt（check（x₀ 1 xₙ n））≠ 0
-uint8_t count (const uint16_t x, const uint16_t * xₙ, uint8_t n)
-{
-	uint8_t cnt = 0;
-	while (n --> 0)
-	{
-		if (x == * xₙ ++) ++ cnt;
-	}
-	return cnt;
-}
 // ⋯
 const uint16_t nop = OP_NOP; // NOTE: nop-terminated script
 const uint16_t x₀ = OP_CHECKSIGADD + 1; // Unlocking variable
@@ -131,8 +53,6 @@ struct {
 	[x₀ ... 0x3FFF].code = nop,
 };
 uint16_t öp = x₀, öp⁻¹ = 0x3FFF; // Trace allocation pointer
-uint16_t stack [1000] = { [0 ... 999] = nop };
-uint16_t ap = 0, ap⁻¹ = 999; // Stack allocation pointer
 // Read nop-terminated script
 uint8_t preprocess (void)
 {
@@ -140,17 +60,14 @@ uint8_t preprocess (void)
 	while (fread (& op, 1, 1, stdin) > 0) switch (op)
 	{
 		case OP_0:
-			assert (ap <= ap⁻¹);
-			move (& op, & stack [ap ++]);
+			__builtin_push (OP_0);
 			continue;
 		case 1:
 		case 2:
 		case 3:
 		case 4:
-			assert (ap <= ap⁻¹);
-			assert (öp <= öp⁻¹);
 			// Read multibyte integer
-			fread (& trace [öp⁻¹].xₙ, 1, op, stdin);
+			fread (& trace [öp⁻¹].num, 1, op, stdin);
 			assert (trace [öp⁻¹].num > 16 || trace [öp⁻¹].num <= -1);
 			assert (trace [öp⁻¹].num < +2147483648); // x < +2³¹
 			assert (trace [öp⁻¹].num > -2147483648); // x > -2³¹
@@ -160,14 +77,17 @@ uint8_t preprocess (void)
 				if (öp == öp⁻¹)
 				{
 					// Allocate constant
-					move (& öp⁻¹, & stack [ap ++]), trace [öp⁻¹ --].code = op;
+					assert (öp <= öp⁻¹);
+					trace [öp⁻¹].code = op;
+					__builtin_push (öp⁻¹ --);
 					break;
 				}
 				// öp⁻¹ + 1 ⋯ 2¹² - 1
 				if (trace [öp].code == op && trace [öp].num == trace [öp⁻¹].num)
 				{
 					// Recycle constant
-					move (& öp, & stack [ap ++]), trace [öp⁻¹].num = 0;
+					__builtin_push (öp);
+					trace [öp⁻¹].num = 0;
 					break;
 				}
 			}
@@ -177,16 +97,14 @@ uint8_t preprocess (void)
 		// OP_PUSHDATA2
 		// OP_PUSHDATA4
 		case OP_1NEGATE:
-			assert (ap <= ap⁻¹);
-			move (& op, & stack [ap ++]);
+			__builtin_push (OP_1NEGATE);
 			continue;
 		case OP_RESERVED: // Function variable
-			assert (ap <= ap⁻¹);
 			assert (öp <= öp⁻¹);
 			// NOTE: OP_RESERVED "x₀"
 			trace [öp].code = OP_RESERVED;
 			trace [öp].num = öp - x₀;
-			move (& öp, & stack [ap ++]), ++ öp;
+			__builtin_push (öp ++);
 			continue;
 		case OP_1:
 		case OP_2:
@@ -204,8 +122,7 @@ uint8_t preprocess (void)
 		case OP_14:
 		case OP_15:
 		case OP_16:
-			assert (ap <= ap⁻¹);
-			move (& op, & stack [ap ++]);
+			__builtin_push (op);
 			continue;
 		case OP_NOP: // nop-terminated
 			return nop;
@@ -215,60 +132,58 @@ uint8_t preprocess (void)
 		case OP_IF:
 		case OP_NOTIF:
 		{
-			assert (ap >= 1);
-			uint16_t __ap, __ap⁻¹;
-			uint16_t __stack [1000] = { [0 ... 999] = nop };
-			// Save condition
-			uint16_t x₀ = stack [ap - 1];
-			move (& nop, & stack [-- ap]);
-			// Fork stack
-			for (uint16_t ap⁺ = 0; ap⁺ < ap; ++ ap⁺) move (& stack [ap⁺], & __stack [ap⁺]);
-			for (uint16_t ap = 999; ap > ap⁻¹; -- ap) move (& stack [ap], & __stack [ap]);
-			// Recurse scope
-			__ap = ap, __ap⁻¹ = ap⁻¹;
-			uint8_t __op = preprocess ( );
-			if (__op == OP_ELSE)
+			uint32_t stack₀ [1000], stack₁ [1000];
+			uint16_t x₀ = __builtin_drop;
+			uint32_t ap₀ = __builtin_ap;
+			uint32_t ap₁ = __builtin_ap;
+			uint32_t ap₀⁻¹ = __builtin_ap⁻¹;
+			uint32_t ap₁⁻¹ = __builtin_ap⁻¹;
+			memcpy (stack₁, __builtin_stack, sizeof stack₁);
+			memcpy (stack₀, __builtin_stack, sizeof stack₀);
+			switch (preprocess ( ))
 			{
-				// Swap stack
-				swap (& __ap, & ap);
-				swap (& __ap⁻¹, & ap⁻¹);
-				for (uint16_t ap⁺ = 0; ap⁺ < max (__ap, ap); ++ ap⁺) swap (& stack [ap⁺], & __stack [ap⁺]);
-				for (uint16_t ap = 999; ap > min (__ap⁻¹, ap⁻¹); -- ap) swap (& stack [ap], & __stack [ap]);
-				// Recurse scope
-				__op = preprocess ( );
-				// Swap stack
-				swap (& __ap, & ap);
-				swap (& __ap⁻¹, & ap⁻¹);
-				for (uint16_t ap⁺ = 0; ap⁺ < max (__ap, ap); ++ ap⁺) swap (& stack [ap⁺], & __stack [ap⁺]);
-				for (uint16_t ap = 999; ap > min (__ap⁻¹, ap⁻¹); -- ap) swap (& stack [ap], & __stack [ap]);
+				case OP_ELSE:
+					ap₀ = __builtin_ap;
+					ap₀⁻¹ = __builtin_ap⁻¹;
+					memcpy (stack₀, __builtin_stack, sizeof stack₀);
+					__builtin_ap = ap₁;
+					__builtin_ap⁻¹ = ap₁⁻¹;
+					memcpy (__builtin_stack, stack₁, sizeof stack₁);
+					if (preprocess ( ) != OP_ENDIF) fputs ("Assertion failed: OP_ENDIF\n", stderr);
+					ap₁ = __builtin_ap;
+					ap₁⁻¹ = __builtin_ap⁻¹;
+					memcpy (stack₁, __builtin_stack, sizeof stack₁);
+					break;
+				case OP_ENDIF:
+					ap₀ = __builtin_ap;
+					ap₀⁻¹ = __builtin_ap⁻¹;
+					memcpy (stack₀, __builtin_stack, sizeof stack₀);
+					assert (ap₀ == ap₁ && ap₀⁻¹ == ap₁⁻¹);
+					break;
+				default:
+					fputs ("Assertion failed: OP_ENDIF\n", stderr); // WARNING
+					break;
 			}
-			assert (__op == OP_ENDIF);
-			assert (__ap == ap && __ap⁻¹ == ap⁻¹);
-			// Merge stack
-			for (uint16_t ap⁺ = 0; ap⁺ < ap; ++ ap⁺)
+			// Merge (alt)stack
+			for (uint16_t ap = 0; ap <= 999; ++ ap)
 			{
-				uint16_t x₁ = stack [ap⁺];
-				uint16_t x₂ = __stack [ap⁺];
-				if (x₁ == x₂) continue;
-				if (op == OP_NOTIF) swap (& x₁, & x₂);
-				trace [öp].code = OP_IF;
+				if (ap == __builtin_ap)
+				{
+					ap = __builtin_ap⁻¹;
+					continue;
+				}
+				uint16_t x₁ = stack₀ [ap];
+				uint16_t x₂ = stack₁ [ap];
+				if (x₁ == x₂)
+				{
+					__builtin_stack [ap] = stack₀ [ap];
+					continue;
+				}
+				trace [öp].code = op;
 				trace [öp].x₀ = x₀;
 				trace [öp].x₁ = x₁;
 				trace [öp].x₂ = x₂;
-				move (& öp, & stack [ap⁺]), ++ öp;
-			}
-			// Merge altstack
-			for (uint16_t ap = 999; ap > ap⁻¹; -- ap)
-			{
-				uint16_t x₁ = stack [ap];
-				uint16_t x₂ = __stack [ap];
-				if (x₁ == x₂) continue;
-				if (op == OP_NOTIF) swap (& x₁, & x₂);
-				trace [öp].code = OP_IF;
-				trace [öp].x₀ = x₀;
-				trace [öp].x₁ = x₁;
-				trace [öp].x₂ = x₂;
-				move (& öp, & stack [ap]), ++ öp;
+				__builtin_stack [ap] = öp ++;
 			}
 			continue;
 		}
@@ -280,93 +195,72 @@ uint8_t preprocess (void)
 		// OP_VERIFY
 		// OP_RETURN
 		case OP_TOALTSTACK:
-			assert (ap >= 1);
-			move (& stack [ap - 1], & stack [ap⁻¹ --]);
-			move (& nop, & stack [-- ap]);
+			__builtin_stack [__builtin_ap⁻¹ --] = __builtin_drop;
 			continue;
 		case OP_FROMALTSTACK:
-			assert (ap⁻¹ < 999);
-			move (& stack [++ ap⁻¹], & stack [ap ++]);
-			move (& nop, & stack [ap⁻¹ + 0]);
+			assert (__builtin_ap⁻¹ < 999);
+			__builtin_push (__builtin_stack [++ __builtin_ap⁻¹]);
 			continue;
 		case OP_2DROP:
-			assert (ap >= 2);
-			move (& nop, & stack [-- ap]);
-			move (& nop, & stack [-- ap]);
+			__builtin_drop;
+			__builtin_drop;
 			continue;
 		case OP_2DUP:
-			assert (ap >= 2 && ap - 2 < ap⁻¹);
-			move (& stack [ap - 2], & stack [ap]), ++ ap;
-			move (& stack [ap - 2], & stack [ap]), ++ ap;
+			__builtin_over;
+			__builtin_over;
 			continue;
 		case OP_3DUP:
-			assert (ap >= 3 && ap - 3 < ap⁻¹);
-			move (& stack [ap - 3], & stack [ap]), ++ ap;
-			move (& stack [ap - 3], & stack [ap]), ++ ap;
-			move (& stack [ap - 3], & stack [ap]), ++ ap;
+			__builtin_pick (2);
+			__builtin_pick (2);
+			__builtin_pick (2);
 			continue;
 		case OP_2OVER:
-			assert (ap >= 4 && ap - 2 < ap⁻¹);
-			move (& stack [ap - 4], & stack [ap]), ++ ap;
-			move (& stack [ap - 4], & stack [ap]), ++ ap;
+			__builtin_pick (3);
+			__builtin_pick (3);
 			continue;
 		case OP_2ROT:
-			assert (ap >= 6 && ap - 2 < ap⁻¹);
-			swap (& stack [ap - 6], & stack [ap - 4]);
-			swap (& stack [ap - 5], & stack [ap - 3]);
-			swap (& stack [ap - 4], & stack [ap - 2]);
-			swap (& stack [ap - 3], & stack [ap - 1]);
+			__builtin_roll (5);
+			__builtin_roll (5);
 			continue;
 		case OP_2SWAP:
-			assert (ap >= 4 && ap - 2 < ap⁻¹);
-			swap (& stack [ap - 4], & stack [ap - 2]);
-			swap (& stack [ap - 3], & stack [ap - 1]);
+			__builtin_roll (3);
+			__builtin_roll (3);
 			continue;
 		// OP_IFDUP
 		case OP_DEPTH:
 			assert (öp <= öp⁻¹);
-			trace [öp].code = ap ? OP_RESERVED + ap : OP_0;
-			trace [öp].num = ap;
-			move (& öp, & stack [ap ++]), ++ öp;
+			trace [öp].code = __builtin_ap ? OP_RESERVED + __builtin_ap : OP_0;
+			trace [öp].num = __builtin_ap;
+			__builtin_push (öp ++);
 			continue;
 		case OP_DROP:
-			assert (ap >= 1);
-			move (& nop, & stack [-- ap]);
+			__builtin_drop;
 			continue;
 		case OP_DUP:
-			assert (ap >= 1 && ap - 1 < ap⁻¹);
-			move (& stack [ap - 1], & stack [ap + 0]), ++ ap;
+			__builtin_pick (0);
 			continue;
 		case OP_NIP:
-			assert (ap >= 2);
-			move (& stack [ap - 1], & stack [ap - 2]);
-			stack [-- ap] = nop;
+			__builtin_swap;
+			__builtin_drop;
 			continue;
 		case OP_OVER:
-			assert (ap >= 2 && ap - 1 < ap⁻¹);
-			move (& stack [ap - 2], & stack [ap + 0]), ++ ap;
+			__builtin_over;
 			continue;
 		case OP_PICK:
-			assert (ap + 1 > trace [stack [ap - 1]].num + 1);
-			move (& stack [ap - 1 - trace [stack [ap - 1]].num - 1], & stack [ap - 1]);
+			__builtin_pick (trace [__builtin_drop].num);
 			continue;
 		case OP_ROLL:
-			assert (ap + 1 > trace [stack [ap - 1]].num + 1);
-			for (uint16_t Δap = trace [stack [-- ap]].num; Δap != 0; -- Δap) swap (& stack [ap - Δap - 1], & stack [ap - Δap + 0]);			
+			__builtin_roll (trace [__builtin_drop].num);
 			continue;
 		case OP_ROT:
-			assert (ap >= 3);
-			swap (& stack [ap - 3], & stack [ap - 2]);
-			swap (& stack [ap - 2], & stack [ap - 1]);
+			__builtin_roll (2);
 			continue;
 		case OP_SWAP:
-			assert (ap >= 2);
-			swap (& stack [ap - 2], & stack [ap - 1]);
+			__builtin_swap;
 			continue;
 		case OP_TUCK:
-			assert (ap >= 2 && ap - 1 < ap⁻¹);
-			swap (& stack [ap - 2], & stack [ap - 1]);
-			move (& stack [ap - 2], & stack [ap + 0]), ++ ap;
+			__builtin_swap;
+			__builtin_over;
 			continue;
 		// OP_CAT
 		// OP_SUBSTR
@@ -393,21 +287,19 @@ uint8_t preprocess (void)
 		case OP_ABS:
 		case OP_NOT:
 		case OP_0NOTEQUAL:
-			assert (ap >= 1);
 			assert (öp <= öp⁻¹);
 			trace [öp].code = op;
-			trace [öp].x₀ = stack [ap - 1];
-			move (& öp, & stack [ap - 1]), ++ öp;
+			trace [öp].x₀ = __builtin_drop;
+			__builtin_push (öp ++);
 			continue;
 		case OP_ADD:
-			assert (ap >= 2);
 			assert (öp <= öp⁻¹);
-			if (stack [ap - 1] == stack [ap - 2]) // OP_ADD → OP_2MUL
+			if (__builtin_stack [__builtin_ap - 1] == __builtin_stack [__builtin_ap - 2]) // OP_ADD → OP_2MUL
 			{
 				trace [öp].code = OP_2MUL;
-				trace [öp].x₀ = stack [ap - 1];
-				move (& nop, & stack [-- ap]);
-				move (& öp, & stack [ap - 1]), ++ öp;
+				trace [öp].x₀ = __builtin_drop;
+				trace [öp].x₀ = __builtin_drop;
+				__builtin_push (öp ++);
 				continue;
 			}
 		case OP_SUB:
@@ -427,26 +319,19 @@ uint8_t preprocess (void)
 		case OP_GREATERTHANOREQUAL:
 		case OP_MIN:
 		case OP_MAX:
-			assert (ap >= 2);
 			assert (öp <= öp⁻¹);
-			assert (stack [ap - 1] != stack [ap - 2]);
 			trace [öp].code = op;
-			trace [öp].x₀ = stack [ap - 2];
-			trace [öp].x₁ = stack [ap - 1];
-			move (& nop, & stack [-- ap]);
-			move (& öp, & stack [ap - 1]), ++ öp;
+			trace [öp].x₁ = __builtin_drop;
+			trace [öp].x₀ = __builtin_drop;
+			__builtin_push (öp ++);
 			continue;
 		case OP_WITHIN:
-			assert (ap >= 3);
 			assert (öp <= öp⁻¹);
 			trace [öp].code = OP_WITHIN;
-			trace [öp].x₂ = stack [-- ap];
-			trace [öp].x₁ = stack [-- ap];
-			trace [öp].x₀ = stack [ap - 1];
-			assert (trace [öp].x₁ != trace [öp].x₂);
-			move (& öp, & stack [ap - 1]), ++ öp;
-			move (& nop, & stack [ap + 0]);
-			move (& nop, & stack [ap + 1]);
+			trace [öp].x₂ = __builtin_drop;
+			trace [öp].x₁ = __builtin_drop;
+			trace [öp].x₀ = __builtin_drop;
+			__builtin_push (öp ++);
 			continue;
 		// OP_RIPEMD160
 		// OP_SHA1
@@ -517,12 +402,12 @@ void attach (uint16_t x)
 		// OP_NOP
 		// OP_VER
 		case OP_IF:
+		case OP_NOTIF:
 			if (trace [x].reference ++) return;
 			attach (trace [x].x₀);
 			attach (trace [x].x₁);
 			attach (trace [x].x₂);
 			return;
-		// OP_NOTIF
 		// OP_VERIF
 		// OP_VERNOTIF
 		// OP_ELSE
@@ -610,7 +495,7 @@ void attach (uint16_t x)
 }
 uint16_t reference⁻¹ = nop;
 // Count xᵢ in expression tree
-uint8_t count⁺ (uint16_t xᵢ, uint16_t x₀)
+uint16_t count⁺ (uint16_t xᵢ, uint16_t x₀, uint8_t _)
 {
 	switch (trace [x₀].code)
 	{
@@ -651,7 +536,8 @@ uint8_t count⁺ (uint16_t xᵢ, uint16_t x₀)
 		// OP_VER
 		case OP_IF:
 		case OP_NOTIF:
-			return (x₀ == xᵢ) ? 1 : count⁺ (xᵢ, trace [x₀].x₀) + count⁺ (xᵢ, trace [x₀].x₁) + count⁺ (xᵢ, trace [x₀].x₂);
+			if (_ == 0) return x₀ == xᵢ;
+			return (x₀ == xᵢ) ? 1 : count⁺ (xᵢ, trace [x₀].x₀, 0) + count⁺ (xᵢ, trace [x₀].x₁, 0) + count⁺ (xᵢ, trace [x₀].x₂, 0);
 		// OP_VERIF
 		// OP_VERNOTIF
 		// OP_ELSE
@@ -680,7 +566,8 @@ uint8_t count⁺ (uint16_t xᵢ, uint16_t x₀)
 		case OP_ABS:
 		case OP_NOT:
 		case OP_0NOTEQUAL:
-			return (x₀ == xᵢ) ? 1 : count⁺ (xᵢ, trace [x₀].x₀);
+			if (_ == 0) return x₀ == xᵢ;
+			return (x₀ == xᵢ) ? 1 : count⁺ (xᵢ, trace [x₀].x₀, 0);
 		case OP_ADD:
 		case OP_SUB:
 		case OP_MUL:
@@ -699,9 +586,11 @@ uint8_t count⁺ (uint16_t xᵢ, uint16_t x₀)
 		case OP_GREATERTHANOREQUAL:
 		case OP_MIN:
 		case OP_MAX:
-			return (x₀ == xᵢ) ? 1 : count⁺ (xᵢ, trace [x₀].x₀) + count⁺ (xᵢ, trace [x₀].x₁);
+			if (_ == 0) return x₀ == xᵢ;
+			return (x₀ == xᵢ) ? 1 : count⁺ (xᵢ, trace [x₀].x₀, 0) + count⁺ (xᵢ, trace [x₀].x₁, 0);
 		case OP_WITHIN:
-			return (x₀ == xᵢ) ? 1 : count⁺ (xᵢ, trace [x₀].x₀) + count⁺ (xᵢ, trace [x₀].x₁) + count⁺ (xᵢ, trace [x₀].x₂);
+			if (_ == 0) return x₀ == xᵢ;
+			return (x₀ == xᵢ) ? 1 : count⁺ (xᵢ, trace [x₀].x₀, 0) + count⁺ (xᵢ, trace [x₀].x₁, 0) + count⁺ (xᵢ, trace [x₀].x₂, 0);
 		// OP_RIPEMD160
 		// OP_SHA1
 		// OP_SHA256
@@ -732,37 +621,35 @@ typedef enum : char { LEEWAY, STRICT } workflow;
 // Permute stack elements
 void translate¹ (uint16_t x)
 {
-	assert (ap >= 1);
-	uint16_t apₓ = find⁻¹ (x, stack, ap);
-	uint16_t Δap = ap - apₓ - 1;
-	assert (apₓ < 1000);
+	assert (__builtin_ap >= 1);
+	uint32_t apₓ = __builtin_find (x);  assert (apₓ != 0x80000000);
+	uint16_t Δap = __builtin_ap - apₓ - 1;
 	uint8_t op = nop;
-	uint8_t dup = trace [x].reference > count⁺ (x, reference⁻¹) && count (x, stack, ap) == 1;
-	// case 0b10000000000000000:
+	uint8_t dup = trace [x].reference > count⁺ (x, reference⁻¹, 1) && __builtin_count (x) == 1;
+	// case 0b1:
 	if (Δap == 0 && dup != 0)
 	{
-		swap (& stack [ap - 2], & stack [ap - 1]);
-		move (& stack [ap - 2], & stack [ap + 0]), ++ ap;
+		__builtin_swap;
+		__builtin_over;
 		op = OP_TUCK, fwrite (& op, 1, 1, stdout);
 		dup = 0;
 	}
-	// case 0b01000000000000000:
+	// case 0b10:
 	if (Δap == 1 && dup == 0)
 	{
-		swap (& stack [ap - 2], & stack [ap - 1]);
+		__builtin_swap;
 		op = OP_SWAP, fwrite (& op, 1, 1, stdout), Δap = 0;
 	}
 	if (Δap == 1 && dup != 0)
 	{
-		move (& stack [ap - 2], & stack [ap + 0]), ++ ap;
+		__builtin_over;
 		op = OP_OVER, fwrite (& op, 1, 1, stdout), Δap = 0;
 		dup = 0;
 	}
-	// case 0b00100000000000000:
+	// case 0b100:
 	if (! dup && Δap == 2)
 	{
-		swap (& stack [ap - 3], & stack [ap - 2]);
-		swap (& stack [ap - 2], & stack [ap - 1]);
+		__builtin_roll (2);
 		op = OP_ROT, fwrite (& op, 1, 1, stdout), Δap = 0;
 	}
 	// default:
@@ -773,63 +660,57 @@ void translate¹ (uint16_t x)
 	}
 	if (Δap > 16)
 	{
-		uint8_t n = 4 - lzcnt (Δap) / 8;
+		uint8_t n = 4 - __builtin_clz (Δap) / 8;
 		fwrite (& n, 1, 1, stdout);
 		fwrite (& Δap, 1, n, stdout);
 	}
 	if (dup == 0)
 	{
-		for (uint16_t Δ = Δap; Δ != 0; -- Δ)
-		{
-			swap (& stack [ap - Δ - 1], & stack [ap - Δ + 0]);	
-		}		
+		__builtin_roll (Δap);
 		op = OP_ROLL, fwrite (& op, 1, 1, stdout), Δap = 0;
 	}
 	if (dup != 0)
 	{
-		move (& stack [ap - Δap - 1], & stack [ap + 0]), ++ ap;
+		__builtin_pick (Δap);
 		op = OP_PICK, fwrite (& op, 1, 1, stdout), Δap = 0;
 		dup = 0;
 	}
-	assert (stack [ap - 1] == x);
+	assert (__builtin_stack [__builtin_ap - 1] == x);
 	return;
 }
 // Permute stack elements
 void translate² (uint16_t x₀, uint16_t x₁, workflow s)
 {
-	assert (ap >= 2);
-	uint16_t ap₀ = find⁻¹ (x₀, stack, ap);  assert (ap₀ < 1000);
-	uint16_t ap₁ = find⁻¹ (x₁, stack, ap);  assert (ap₁ < 1000);
-	uint16_t xˡʰˢ = stack [min (ap₀, ap₁)];
-	uint16_t xʳʰˢ = stack [max (ap₀, ap₁)];
-	uint16_t xₙ [ ] = {xˡʰˢ, xʳʰˢ};
+	uint32_t ap₀ = __builtin_find (x₀);  assert (ap₀ != 0x80000000);
+	uint32_t ap₁ = __builtin_find (x₁);  assert (ap₁ != 0x80000000);
+	uint16_t xˡʰˢ = __builtin_stack [min (ap₀, ap₁)];
+	uint16_t xʳʰˢ = __builtin_stack [max (ap₀, ap₁)];
+	uint32_t xₙ [ ] = {xˡʰˢ, xʳʰˢ};
 	uint8_t op = nop;
-	uint16_t dupˡʰˢ = trace [xˡʰˢ].reference > count⁺ (xˡʰˢ, reference⁻¹) && count (xˡʰˢ, stack, ap) == 1;
-	uint16_t dupʳʰˢ = trace [xʳʰˢ].reference > count⁺ (xʳʰˢ, reference⁻¹) && count (xʳʰˢ, stack, ap) == 1;
-	switch (check⁻¹ (& stack [max (ap, 17) - 17], min (ap, 17), xₙ, 2) << (17 - min (ap, 17)))
+	uint16_t dupˡʰˢ = trace [xˡʰˢ].reference > count⁺ (xˡʰˢ, reference⁻¹, 1) && __builtin_count (xˡʰˢ) == 1;
+	uint16_t dupʳʰˢ = trace [xʳʰˢ].reference > count⁺ (xʳʰˢ, reference⁻¹, 1) && __builtin_count (xʳʰˢ) == 1;
+	switch (__builtin_check⁻¹ (xₙ, 2))
 	{
-		case 0b00001100000000000: // 0x01800
-			swap (& stack [ap - 6], & stack [ap - 4]);
-			swap (& stack [ap - 5], & stack [ap - 3]);
-			swap (& stack [ap - 4], & stack [ap - 2]);
-			swap (& stack [ap - 3], & stack [ap - 1]);
+		case 0b110000:
+			__builtin_roll (5);
+			__builtin_roll (5);
 			op = OP_2ROT, fwrite (& op, 1, 1, stdout);
 			return translate² (x₀, x₁, s);
-		case 0b00110000000000000: // 0x06000
+		case 0b1100:
 			if (dupˡʰˢ && dupʳʰˢ)
 			{
-				move (& stack [ap - 4], & stack [ap]), ++ ap;
-				move (& stack [ap - 4], & stack [ap]), ++ ap;
+				__builtin_pick (3);
+				__builtin_pick (3);
 				op = OP_2OVER, fwrite (& op, 1, 1, stdout);
 			}
 			else
 			{
-				swap (& stack [ap - 4], & stack [ap - 2]);
-				swap (& stack [ap - 3], & stack [ap - 1]);
+				__builtin_roll (3);
+				__builtin_roll (3);
 				op = OP_2SWAP, fwrite (& op, 1, 1, stdout);
 			}
 			return translate² (x₀, x₁, s);
-		case 0b01100000000000000: // 0x0C000
+		case 0b110:
 			if (dupˡʰˢ != dupʳʰˢ)
 			{
 				translate¹ (x₀);
@@ -838,51 +719,49 @@ void translate² (uint16_t x₀, uint16_t x₁, workflow s)
 			}
 			if (x₀ == xˡʰˢ)
 			{
-				swap (& stack [ap - 3], & stack [ap - 2]);
-				swap (& stack [ap - 2], & stack [ap - 1]);
-				swap (& xˡʰˢ, & xʳʰˢ), swap (& dupˡʰˢ, & dupʳʰˢ);
+				__builtin_roll (2);
 				op = OP_ROT, fwrite (& op, 1, 1, stdout);
 			}
 			else // x₀ == xʳʰˢ
 			{
-				swap (& stack [ap - 2], & stack [ap - 1]);
+				__builtin_swap;
 				op = OP_SWAP, fwrite (& op, 1, 1, stdout);
 			}
-		case 0b10100000000000000: // 0x14000
+			return translate² (x₀, x₁, s);
+		case 0b101:
 			if (dupˡʰˢ != dupʳʰˢ)
 			{
 				translate¹ (x₀);
 				translate¹ (x₁);
 				return;
 			}
-			swap (& stack [ap - 3], & stack [ap - 2]);
-			swap (& stack [ap - 2], & stack [ap - 1]);
-			swap (& xˡʰˢ, & xʳʰˢ), swap (& dupˡʰˢ, & dupʳʰˢ);
+			__builtin_roll (2);
 			op = OP_ROT, fwrite (& op, 1, 1, stdout);
-		case 0b11000000000000000: // 0x18000
+			return translate² (x₀, x₁, s);
+		case 0b11:
 			if (dupˡʰˢ && dupʳʰˢ)
 			{
-				move (& stack [ap - 2], & stack [ap]), ++ ap;
-				move (& stack [ap - 2], & stack [ap]), ++ ap;
+				__builtin_over;
+				__builtin_over;
 				op = OP_2DUP, fwrite (& op, 1, 1, stdout);
 			}
 			if (dupˡʰˢ != dupʳʰˢ)
 			{
-				if (dupˡʰˢ != 0)
+				if (dupˡʰˢ)
 				{
-					move (& stack [ap - 2], & stack [ap + 0]), ++ ap;
+					__builtin_over;
 					op = OP_OVER, fwrite (& op, 1, 1, stdout);
 				}
-				if (dupʳʰˢ != 0)
+				if (dupʳʰˢ)
 				{
-					swap (& stack [ap - 2], & stack [ap - 1]);
-					move (& stack [ap - 2], & stack [ap + 0]), ++ ap;
+					__builtin_swap;
+					__builtin_over;
 					op = OP_TUCK, fwrite (& op, 1, 1, stdout);
 				}
 			}
-			if (s == STRICT && stack [ap - 1] == x₀)
+			if (s == STRICT && __builtin_stack [__builtin_ap - 1] == x₀)
 			{
-				swap (& stack [ap - 2], & stack [ap - 1]);
+				__builtin_swap;
 				op = OP_SWAP, fwrite (& op, 1, 1, stdout);
 			}
 			return;
@@ -903,114 +782,133 @@ void translate² (uint16_t x₀, uint16_t x₁, workflow s)
 // Permute stack elements
 void translate³ (uint16_t x₀, uint16_t x₁, uint16_t x₂, workflow s)
 {
-	assert (ap >= 3);
-	uint16_t ap₀ = find⁻¹ (x₀, stack, ap);  assert (ap₀ < 1000);
-	uint16_t ap₁ = find⁻¹ (x₁, stack, ap);  assert (ap₁ < 1000);
-	uint16_t ap₂ = find⁻¹ (x₂, stack, ap);  assert (ap₂ < 1000);
-	uint16_t xˡʰˢ = stack [min (min (ap₀, ap₁), ap₂)];
+	uint32_t ap₀ = __builtin_find (x₀);  assert (ap₀ != 0x80000000);
+	uint32_t ap₁ = __builtin_find (x₁);  assert (ap₁ != 0x80000000);
+	uint32_t ap₂ = __builtin_find (x₂);  assert (ap₂ != 0x80000000);
+	uint16_t xˡʰˢ = __builtin_stack [min (min (ap₀, ap₁), ap₂)];
 	uint16_t xᵐⁱᵈ;
-	uint16_t xʳʰˢ = stack [max (max (ap₀, ap₁), ap₂)];
+	uint16_t xʳʰˢ = __builtin_stack [max (max (ap₀, ap₁), ap₂)];
 	if (x₀ != xˡʰˢ && x₀ != xʳʰˢ) xᵐⁱᵈ = x₀;
 	if (x₁ != xˡʰˢ && x₁ != xʳʰˢ) xᵐⁱᵈ = x₁;
 	if (x₂ != xˡʰˢ && x₂ != xʳʰˢ) xᵐⁱᵈ = x₂;
-	uint16_t xₙ [ ] = {xˡʰˢ, xᵐⁱᵈ, xʳʰˢ};
+	uint32_t xₙ [ ] = {xˡʰˢ, xᵐⁱᵈ, xʳʰˢ};
 	uint8_t op = nop;
-	uint16_t dupˡʰˢ = trace [xˡʰˢ].reference > count⁺ (xˡʰˢ, reference⁻¹) && count (xˡʰˢ, stack, ap) == 1;
-	uint16_t dupᵐⁱᵈ = trace [xᵐⁱᵈ].reference > count⁺ (xᵐⁱᵈ, reference⁻¹) && count (xᵐⁱᵈ, stack, ap) == 1;
-	uint16_t dupʳʰˢ = trace [xʳʰˢ].reference > count⁺ (xʳʰˢ, reference⁻¹) && count (xʳʰˢ, stack, ap) == 1;
-	switch (check⁻¹ (& stack [max (ap, 17) - 17], min (ap, 17), xₙ, 3) << (17 - min (ap, 17)) & 0b11100000000000000)
+	uint16_t dupˡʰˢ = trace [xˡʰˢ].reference > count⁺ (xˡʰˢ, reference⁻¹, 1) && __builtin_count (xˡʰˢ) == 1;
+	uint16_t dupᵐⁱᵈ = trace [xᵐⁱᵈ].reference > count⁺ (xᵐⁱᵈ, reference⁻¹, 1) && __builtin_count (xᵐⁱᵈ) == 1;
+	uint16_t dupʳʰˢ = trace [xʳʰˢ].reference > count⁺ (xʳʰˢ, reference⁻¹, 1) && __builtin_count (xʳʰˢ) == 1;
+	switch (__builtin_check⁻¹ (xₙ, 3) & 0b111)
 	{
-		case 0b11100000000000000: // 0x1C000
-			if (dupˡʰˢ && dupᵐⁱᵈ && dupʳʰˢ)
+		case 0b111:
+			if (dupˡʰˢ && dupᵐⁱᵈ && dupʳʰˢ) // xᵢ xⱼ xₖ  →  xᵢ xⱼ xₖ
 			{
-				move (& stack [ap - 3], & stack [ap]), ++ ap;
-				move (& stack [ap - 3], & stack [ap]), ++ ap;
-				move (& stack [ap - 3], & stack [ap]), ++ ap;
+				__builtin_pick (2);
+				__builtin_pick (2);
+				__builtin_pick (2);
 				op = OP_3DUP, fwrite (& op, 1, 1, stdout);
 				dupˡʰˢ = dupᵐⁱᵈ = dupʳʰˢ = 0;
 			}
-			if (dupᵐⁱᵈ && dupʳʰˢ)
+			if (s == STRICT)
 			{
-				move (& stack [ap - 2], & stack [ap]), ++ ap;
-				move (& stack [ap - 2], & stack [ap]), ++ ap;
+				if (x₁ == xˡʰˢ || x₂ == xˡʰˢ && ! dupˡʰˢ) // xᵢ x₀ xⱼ  →  x₂ xⱼ xᵢ oder so
+				{
+					__builtin_roll (2);
+					op = OP_ROT, fwrite (& op, 1, 1, stdout);
+					translate³ (x₀, x₁, x₂, STRICT);
+					return;
+				}
+			}
+		case 0b11:
+			if (dupᵐⁱᵈ && dupʳʰˢ) // xᵢ xⱼ  →  xᵢ xⱼ xᵢ xⱼ
+			{
+				__builtin_over;
+				__builtin_over;
 				op = OP_2DUP, fwrite (& op, 1, 1, stdout);
-				swap (& stack [ap - 5], & stack [ap - 4]);
-				swap (& stack [ap - 4], & stack [ap - 3]);
-				swap (& stack [ap - 3], & stack [ap - 2]);
-				swap (& stack [ap - 2], & stack [ap - 1]);
-				swap (& xˡʰˢ, & xᵐⁱᵈ), swap (& xᵐⁱᵈ, & xʳʰˢ);
-				op = OP_4, fwrite (& op, 1, 1, stdout);
-				op = OP_ROLL, fwrite (& op, 1, 1, stdout);
-				dupᵐⁱᵈ = dupʳʰˢ = 0;
+				translate³ (x₀, x₁, x₂, s);
+				return;
 			}
-			if (dupᵐⁱᵈ != 0)
+			if (s == STRICT)
 			{
-				move (& stack [ap - 2], & stack [ap + 0]), ++ ap;
-				swap (& xᵐⁱᵈ, & xʳʰˢ);
+				if (x₂ == xᵐⁱᵈ && x₁ == xʳʰˢ) // x₀ x₂ x₁  →  x₀ x₁ x₂
+				{
+					__builtin_swap;
+					op = OP_SWAP, fwrite (& op, 1, 1, stdout);
+					translate³ (x₀, x₁, x₂, STRICT);
+					return;
+				}
+			}
+			if (dupᵐⁱᵈ) // xᵢ xⱼ  →  xᵢ xⱼ xᵢ
+			{
+				__builtin_over;
 				op = OP_OVER, fwrite (& op, 1, 1, stdout);
-				dupᵐⁱᵈ = 0;
+				translate³ (x₀, x₁, x₂, s);
+				return;
 			}
-			if (dupʳʰˢ != 0)
+			if (dupʳʰˢ) // xᵢ xⱼ  →  xⱼ xᵢ xⱼ
 			{
-				swap (& stack [ap - 2], & stack [ap - 1]);
-				move (& stack [ap - 2], & stack [ap + 0]), ++ ap;
+				__builtin_swap;
+				__builtin_over;
 				op = OP_TUCK, fwrite (& op, 1, 1, stdout);
-				dupʳʰˢ = 0;
+				translate³ (x₀, x₁, x₂, s);
+				return;
 			}
-			if (dupᵐⁱᵈ != dupʳʰˢ)
+			if (dupˡʰˢ || __builtin_ap - __builtin_find (xˡʰˢ) - 1 >= 3) // xᵢ ⋯ xⱼ xₖ  →  xᵢ ⋯ xⱼ xₖ xᵢ
 			{
-				swap (& stack [ap - 4], & stack [ap - 3]);
-				swap (& stack [ap - 3], & stack [ap - 2]);
-				swap (& stack [ap - 2], & stack [ap - 1]);
-				swap (& xˡʰˢ, & xᵐⁱᵈ), swap (& xᵐⁱᵈ, & xʳʰˢ);
-				op = OP_3, fwrite (& op, 1, 1, stdout);
-				op = OP_ROLL, fwrite (& op, 1, 1, stdout);
+				translate¹ (xˡʰˢ);
+				if (s == STRICT) translate³ (x₀, x₁, x₂, STRICT);
+				return;
 			}
-			if (s == LEEWAY) return;
-			if (x₂ == xˡʰˢ && x₀ == xʳʰˢ)
+			if (x₁ == xᵐⁱᵈ && x₀ == xʳʰˢ) // x₂ ⋯ x₁ x₀  →  x₂ ⋯ x₀ x₁
 			{
-				swap (& stack [ap - 2], & stack [ap - 1]);
-				swap (& xᵐⁱᵈ, & xʳʰˢ);
+				__builtin_swap;
 				op = OP_SWAP, fwrite (& op, 1, 1, stdout);
+				translate³ (x₀, x₁, x₂, s);
+				return;
 			}
-			if (x₂ == xˡʰˢ && x₁ == xʳʰˢ)
+			if (s == STRICT)
 			{
-				swap (& stack [ap - 3], & stack [ap - 2]);
-				swap (& stack [ap - 2], & stack [ap - 1]);
-				swap (& xˡʰˢ, & xᵐⁱᵈ);
-				swap (& xᵐⁱᵈ, & xʳʰˢ);
-				op = OP_ROT, fwrite (& op, 1, 1, stdout);
+				assert (__builtin_stack [__builtin_ap - 3] == x₀);
+				assert (__builtin_stack [__builtin_ap - 2] == x₁);
+				assert (__builtin_stack [__builtin_ap - 1] == x₂);
 			}
-			if (x₂ == xʳʰˢ) return;
-			swap (& stack [ap - 2], & stack [ap - 1]);
-			op = OP_SWAP, fwrite (& op, 1, 1, stdout);
 			return;
-		case 0b01100000000000000: // 0x0C000
-		case 0b10100000000000000: // 0x14000
-		case 0b11000000000000000: // 0x18000
+		case 0b110:
+		case 0b101:
 			translate² (xᵐⁱᵈ, xʳʰˢ, LEEWAY);
-			translate¹ (xˡʰˢ);
-			return translate³ (x₀, x₁, x₂, s);
+			translate³ (x₀, x₁, x₂, s);
+			return;
 		default:
-			translate¹ (xʳʰˢ);
-			translate¹ (xᵐⁱᵈ);
-			translate¹ (xˡʰˢ);
-			return translate³ (x₀, x₁, x₂, s);
+			if (s == LEEWAY)
+			{
+				translate¹ (xʳʰˢ);
+				translate¹ (xᵐⁱᵈ);
+				translate¹ (xˡʰˢ);
+				return;
+			}
+			if (s == STRICT)
+			{
+				translate¹ (x₀);
+				translate¹ (x₁);
+				translate¹ (x₂);
+				assert (__builtin_stack [__builtin_ap - 3] == x₀);
+				assert (__builtin_stack [__builtin_ap - 2] == x₁);
+				assert (__builtin_stack [__builtin_ap - 1] == x₂);
+				return;
+			}
 	}
 }
-// Permute stack elements
+// Dispatch x₀ ⋯ xₙ₋₁
 uint16_t translate (const uint16_t xₙ [ ], uint8_t n, workflow s)
 {
 	uint16_t xᵢ;
 	uint16_t x₀, x₁, x₂;
+	if (n == 0) return nop; // WARNING
 	switch (n)
 	{
 		case 1:
 			x₀ = xₙ [0];
 			if (trace [x₀].reference != 0) -- trace [x₀].reference;
 			translate¹ (x₀);
-			assert (ap >= 1);
-			assert (stack [ap - 1] == x₀), move (& nop, & stack [-- ap]);
+			assert (__builtin_find (x₀) == __builtin_ap - 1), __builtin_drop;
 			return x₀;
 		case 2:
 			x₀ = xₙ [0];
@@ -1018,16 +916,15 @@ uint16_t translate (const uint16_t xₙ [ ], uint8_t n, workflow s)
 			if (trace [x₀].reference != 0) -- trace [x₀].reference;
 			if (trace [x₁].reference != 0) -- trace [x₁].reference;
 			translate² (x₀, x₁, s);
-			assert (ap >= 2);
 			if (s == STRICT)
 			{
-				assert (stack [ap - 1] == x₁), move (& nop, & stack [-- ap]);
-				assert (stack [ap - 1] == x₀), move (& nop, & stack [-- ap]);
+				assert (__builtin_find (x₁) == __builtin_ap - 1), __builtin_drop;
+				assert (__builtin_find (x₀) == __builtin_ap - 1), __builtin_drop;
 				return x₁;
 			}
-			xᵢ = stack [ap - 1];
-			assert (stack [ap - 1] == x₀ || stack [ap - 1] == x₁), move (& nop, & stack [-- ap]);
-			assert (stack [ap - 1] == x₀ || stack [ap - 1] == x₁), move (& nop, & stack [-- ap]);
+			xᵢ = __builtin_stack [__builtin_ap - 1];
+			assert (__builtin_stack [__builtin_ap - 1] == x₀ || __builtin_stack [__builtin_ap - 1] == x₁), __builtin_drop;
+			assert (__builtin_stack [__builtin_ap - 1] == x₀ || __builtin_stack [__builtin_ap - 1] == x₁), __builtin_drop;
 			return xᵢ;
 		case 3:
 			x₀ = xₙ [0];
@@ -1037,29 +934,30 @@ uint16_t translate (const uint16_t xₙ [ ], uint8_t n, workflow s)
 			if (trace [x₁].reference != 0) -- trace [x₁].reference;
 			if (trace [x₂].reference != 0) -- trace [x₂].reference;
 			translate³ (x₀, x₁, x₂, s);
-			assert (ap >= 3);
 			if (s == STRICT)
 			{
-				assert (stack [ap - 1] == x₂), move (& nop, & stack [-- ap]);
-				assert (stack [ap - 1] == x₁), move (& nop, & stack [-- ap]);
-					assert (stack [ap - 1] == x₀), move (& nop, & stack [-- ap]);
+				assert (__builtin_find (x₂) == __builtin_ap - 1), __builtin_drop;
+				assert (__builtin_find (x₁) == __builtin_ap - 1), __builtin_drop;
+				assert (__builtin_find (x₀) == __builtin_ap - 1), __builtin_drop;
 				return x₂;
 			}
-			xᵢ = stack [ap - 1];
-			assert (stack [ap - 1] == x₀ || stack [ap - 1] == x₁ || stack [ap - 1] == x₂), move (& nop, & stack [-- ap]);
-			assert (stack [ap - 1] == x₀ || stack [ap - 1] == x₁ || stack [ap - 1] == x₂), move (& nop, & stack [-- ap]);
-			assert (stack [ap - 1] == x₀ || stack [ap - 1] == x₁ || stack [ap - 1] == x₂), move (& nop, & stack [-- ap]);
+			assert (__builtin_ap == min (min (__builtin_find (x₀), __builtin_find (x₁)), __builtin_find (x₂)) + 3);
+			xᵢ = __builtin_stack [__builtin_ap - 1];
+			__builtin_drop;
+			__builtin_drop;
+			__builtin_drop;
 			return xᵢ;
 		default: // WARNING
-			return nop;
+			assert (s == LEEWAY);
+			for (uint8_t i = 0; i < n; ++ i) assert (__builtin_find (xₙ [i]) != 0x80000000);
+			return __builtin_stack [__builtin_ap - 1];
 	}
 }
-// Serialize unused operation
+// Discard expression
 void serialize⁻ (uint16_t x)
 {
-	uint8_t op = nop;
-	uint16_t apₓ = find⁻¹ (x, stack, ap);
-	if (apₓ == 0x8000) switch (trace [x].code)
+	uint32_t apₓ = __builtin_find (x);
+	if (apₓ == 0x80000000) switch (trace [x].code)
 	{
 		case OP_0:
 			return;
@@ -1183,23 +1081,23 @@ void serialize⁻ (uint16_t x)
 		default:
 			return; // WARNING
 	}
-	uint16_t Δap = ap - apₓ - 1;
-	if (trace [x].reference < count⁺ (x, reference⁻¹) && count (x, stack, ap) == 1) switch (Δap)
+	uint8_t op = nop;
+	uint16_t Δap = __builtin_ap - apₓ - 1;
+	if (trace [x].reference < count⁺ (x, reference⁻¹, 1) && __builtin_count (x) == 1) switch (Δap)
 	{
 		case 0:
-			stack [-- ap] = nop;
+			__builtin_drop;
 			op = OP_DROP; fwrite (& op, 1, 1, stdout);
 			return;
 		case 1:
-			swap (& stack [ap - 2], & stack [ap - 1]);
-			move (& nop, & stack [-- ap]);
+			__builtin_swap;
+			__builtin_drop;
 			op = OP_NIP; fwrite (& op, 1, 1, stdout);
 			return;
 		case 2:
-			swap (& stack [ap - 3], & stack [ap - 2]);
-			swap (& stack [ap - 2], & stack [ap - 1]);
+			__builtin_roll (2);
 			op = OP_ROT; fwrite (& op, 1, 1, stdout);
-			move (& nop, & stack [-- ap]);
+			__builtin_drop;
 			op = OP_DROP; fwrite (& op, 1, 1, stdout);
 			return;
 		default:
@@ -1209,21 +1107,18 @@ void serialize⁻ (uint16_t x)
 			}
 			if (Δap > 16)
 			{
-				uint8_t n = 4 - lzcnt (Δap) / 8;
+				uint8_t n = 4 - __builtin_clz (Δap) / 8;
 				fwrite (& n, 1, 1, stdout);
 				fwrite (& Δap, 1, n, stdout);
 			}
-			for (uint16_t Δ = Δap; Δ != 0; -- Δ)
-			{
-				swap (& stack [ap - Δ - 1], & stack [ap - Δ + 0]);	
-			}
+			__builtin_roll (Δap);
 			op = OP_ROLL; fwrite (& op, 1, 1, stdout);
-			move (& nop, & stack [-- ap]);
+			__builtin_drop;
 			op = OP_DROP; fwrite (& op, 1, 1, stdout);
 			return;
 	}
 }
-// Flush Bitcoin script
+// Compute expression
 void serialize⁺ (uint16_t x)
 {
 	uint8_t op = nop;
@@ -1232,7 +1127,7 @@ void serialize⁺ (uint16_t x)
 	{
 		case OP_0:
 			assert (trace [x].reference == 0);
-			move (& x, & stack [ap ++]);
+			__builtin_push (x);
 			fwrite (& op, 1, 1, stdout);
 			break;
 		case 1:
@@ -1240,11 +1135,10 @@ void serialize⁺ (uint16_t x)
 		case 3:
 		case 4:
 			assert (trace [x].reference != 0);
-			if (find⁻¹ (x, stack, ap) < 1000) break;
+			if (__builtin_find (x) != 0x80000000) break;
 			assert (trace [x].num > 16 || trace [x].num <= -1);
 			assert (trace [x].num < +2147483648); // x₀ < +2³¹
 			assert (trace [x].num > -2147483648); // x₀ > -2³¹
-			assert (stack [ap] == nop);
 			if (trace [x].num <= 16)
 			{
 				if (trace [x].num == 0) op = OP_0;
@@ -1253,11 +1147,11 @@ void serialize⁺ (uint16_t x)
 			}
 			else
 			{
-				uint8_t n = 4 - lzcnt (trace [x].num) / 8;
+				uint8_t n = 4 - __builtin_clz (trace [x].num) / 8;
 				fwrite (& n, 1, 1, stdout);
 				fwrite (& trace [x].num, 1, n, stdout);
 			}
-			move (& x, & stack [ap ++]);
+			__builtin_push (x);
 			break;
 		// ⋯
 		// OP_PUSHDATA1
@@ -1266,7 +1160,7 @@ void serialize⁺ (uint16_t x)
 		// OP_1NEGATE
 		case OP_RESERVED:
 			assert (trace [x].reference != 0);
-			assert (find⁻¹ (x, stack, ap) != 0x8000);
+			assert (__builtin_find (x) != 0x80000000);
 			break;
 		case OP_1:
 		case OP_2:
@@ -1293,52 +1187,81 @@ void serialize⁺ (uint16_t x)
 			}
 			else
 			{
-				uint8_t n = 4 - lzcnt (trace [x].num) / 8;
+				uint8_t n = 4 - __builtin_clz (trace [x].num) / 8;
 				fwrite (& n, 1, 1, stdout);
 				fwrite (& trace [x].num, 1, n, stdout);
 			}
-			move (& x, & stack [ap ++]);
+			__builtin_push (x);
 			break;
 		case OP_NOP:
 			fwrite (& op, 1, 1, stdout);
 			break;
 		// OP_VER
 		case OP_IF:
-			if (find⁻¹ (x, stack, ap) < 1000) break;
-			// if (trace [trace [x].x₂].reference >= 2) serialize⁺ (trace [x].x₂);
-			// if (trace [trace [x].x₁].reference >= 2) serialize⁺ (trace [x].x₁);
-			assert (find⁻¹ (trace [x].x₀, stack, ap) != 0x8000);
-			uint16_t ap₁ = find⁻¹ (trace [x].x₁, stack, ap);
-			uint16_t ap₂ = find⁻¹ (trace [x].x₂, stack, ap);
-			// if (ap₁ != 0x8000 && trace [trace [x].x₁].reference - 1 == count⁺ (trace [x].x₁, reference⁻¹)) translate¹ (trace [x].x₁);
-			// if (ap₂ != 0x8000 && trace [trace [x].x₂].reference - 1 == count⁺ (trace [x].x₂, reference⁻¹)) translate¹ (trace [x].x₂);
-			translate (& trace [x].x₀, 1, STRICT), op = OP_IF, fwrite (& op, 1, 1, stdout);
-			uint16_t __ap, __ap⁻¹;
-			uint16_t __stack [1000] = { [0 ... 999] = nop };
-			// Fork stack
-			for (uint16_t ap⁺ = 0; ap⁺ < ap; ++ ap⁺) move (& stack [ap⁺], & __stack [ap⁺]);
-			for (uint16_t ap = 999; ap > ap⁻¹; -- ap) move (& stack [ap], & __stack [ap]);
-			__ap = ap, __ap⁻¹ = ap⁻¹;
-			reference⁻¹ = trace [x].x₂;
-			if (ap₁ == 0x8000) serialize⁺ (trace [x].x₁);
-			translate (& trace [x].x₁, 1, STRICT);
-			move (& x, & stack [ap ++]);
-			serialize⁻ (trace [x].x₂);
+		case OP_NOTIF:
+		{
+			if (__builtin_find (x) != 0x80000000) break;
+			// if (__builtin_find (trace [x].x₀) == 0x80000000) serialize⁺ (trace [x].x₀);
+			// if (__builtin_find (trace [x].x₁) == 0x80000000) serialize⁺ (trace [x].x₁);
+			// if (__builtin_find (trace [x].x₂) == 0x80000000) serialize⁺ (trace [x].x₂);
+			assert (trace [x].reference != 0);
+			uint16_t xₙ [ ] = { trace [x].x₁, trace [x].x₂, trace [x].x₀ };
+			translate (xₙ, 3, STRICT);
+			op = OP_IF, fwrite (& op, 1, 1, stdout);
+			op = OP_DROP, fwrite (& op, 1, 1, stdout);
 			op = OP_ELSE, fwrite (& op, 1, 1, stdout);
-			// Swap stack
-			swap (& __ap, & ap);
-			swap (& __ap⁻¹, & ap⁻¹);
-			for (uint16_t ap⁺ = 0; ap⁺ < max (__ap, ap); ++ ap⁺) swap (& stack [ap⁺], & __stack [ap⁺]);
-			for (uint16_t ap = 999; ap > min (__ap⁻¹, ap⁻¹); -- ap) swap (& stack [ap], & __stack [ap]);
-			reference⁻¹ = trace [x].x₁;
-			if (ap₂ == 0x8000) serialize⁺ (trace [x].x₂);
-			translate (& trace [x].x₂, 1, STRICT);
-			move (& x, & stack [ap ++]);
-			serialize⁻ (trace [x].x₁);
+			op = OP_NIP, fwrite (& op, 1, 1, stdout);
 			op = OP_ENDIF, fwrite (& op, 1, 1, stdout);
-			reference⁻¹ = nop;
+			__builtin_push (x);
+			// if (__builtin_find (x) != 0x80000000) break;
+			// uint32_t __ap₁ = __builtin_find (trace [x].x₁);
+			// uint32_t __ap₂ = __builtin_find (trace [x].x₂);
+			// if (__ap₁ == 0x80000000 && trace [trace [x].x₁].reference >= 2) serialize⁺ (trace [x].x₁);
+			// if (__ap₂ == 0x80000000 && trace [trace [x].x₂].reference >= 2) serialize⁺ (trace [x].x₂);
+			// assert (__builtin_find (trace [x].x₀) != 0x80000000);
+			// __ap₁ = __builtin_find (trace [x].x₁);
+			// __ap₂ = __builtin_find (trace [x].x₂);
+			// translate (& trace [x].x₀, 1, STRICT), fwrite (& op, 1, 1, stdout);
+			// uint32_t ap₀ = __builtin_ap;
+			// uint32_t ap₁ = __builtin_ap;
+			// uint32_t ap₀⁻¹ = __builtin_ap⁻¹;
+			// uint32_t ap₁⁻¹ = __builtin_ap⁻¹;
+			// uint32_t stack₀ [1000], stack₁ [1000];
+			// memcpy (stack₀, __builtin_stack, sizeof stack₀);
+			// memcpy (stack₁, __builtin_stack, sizeof stack₁);
+			// reference⁻¹ = trace [x].x₂;
+			// if (__ap₁ == 0x80000000) serialize⁺ (trace [x].x₁);
+			// uint8_t reference₁ = trace [trace [x].x₁].reference;
+			// translate (& trace [x].x₁, 1, STRICT);
+			// serialize⁻ (trace [x].x₂);
+			// if (reference₁ != 0) ++ trace [trace [x].x₁].reference;
+			// __builtin_push (x);
+			// op = OP_ELSE, fwrite (& op, 1, 1, stdout);
+			// ap₀ = __builtin_ap;
+			// ap₀⁻¹ = __builtin_ap⁻¹;
+			// memcpy (stack₀, __builtin_stack, sizeof stack₀);
+			// __builtin_ap = ap₁;
+			// __builtin_ap⁻¹ = ap₁⁻¹;
+			// memcpy (__builtin_stack, stack₁, sizeof stack₁);
+			// reference⁻¹ = trace [x].x₁;
+			// if (__ap₂ == 0x80000000) serialize⁺ (trace [x].x₂);
+			// uint8_t reference₂ = trace [trace [x].x₂].reference;
+			// translate (& trace [x].x₂, 1, STRICT);
+			// serialize⁻ (trace [x].x₁);
+			// if (reference₂ != 0) ++ trace [trace [x].x₂].reference;
+			// __builtin_push (x);
+			// op = OP_ENDIF, fwrite (& op, 1, 1, stdout);
+			// ap₁ = __builtin_ap;
+			// ap₁⁻¹ = __builtin_ap⁻¹;
+			// memcpy (stack₁, __builtin_stack, sizeof stack₁);
+			// reference⁻¹ = nop;
+			// // 00123 00132 00213 00231 00312 00321
+			// // 01023 01032 01203 01230 01302 01320
+			// // 02013 02031 02103 02130 02301 02310
+			// // 03012 03021 03102 03120 03201 03210
+			// assert (ap₀ == ap₁ && ap₀⁻¹ == ap₁⁻¹);
 			break;
-		// OP_NOTIF
+		}
 		// OP_VERIF
 		// OP_VERNOTIF
 		// OP_ELSE
@@ -1361,41 +1284,41 @@ void serialize⁺ (uint16_t x)
 		// OP_RESERVED2
 		case OP_1ADD:
 		case OP_1SUB:
-			if (find⁻¹ (x, stack, ap) < 1000) break;
-			if (find⁻¹ (trace [x].x₀, stack, ap) == 0x8000) serialize⁺ (trace [x].x₀);
+			if (__builtin_find (x) != 0x80000000) break;
+			if (__builtin_find (trace [x].x₀) == 0x80000000) serialize⁺ (trace [x].x₀);
 			assert (trace [x].reference != 0), translate (trace [x].xₙ, 1, STRICT);
-			move (& x, & stack [ap ++]), fwrite (& op, 1, 1, stdout);
+			__builtin_push (x), fwrite (& op, 1, 1, stdout);
 			break;
 		case OP_2MUL:
-			if (find⁻¹ (x, stack, ap) < 1000) break;
-			if (find⁻¹ (trace [x].x₀, stack, ap) == 0x8000) serialize⁺ (trace [x].x₀);
+			if (__builtin_find (x) != 0x80000000) break;
+			if (__builtin_find (trace [x].x₀) == 0x80000000) serialize⁺ (trace [x].x₀);
 			assert (trace [x].reference != 0), translate (trace [x].xₙ, 1, STRICT);
 			op = OP_DUP, fwrite (& op, 1, 1, stdout);
-			op = OP_ADD, fwrite (& op, 1, 1, stdout), move (& x, & stack [ap ++]);
+			op = OP_ADD, fwrite (& op, 1, 1, stdout), __builtin_push (x);
 			break;
 		case OP_2DIV:
 		case OP_NEGATE:
 		case OP_ABS:
 		case OP_NOT:
 		case OP_0NOTEQUAL:
-			if (find⁻¹ (x, stack, ap) < 1000) break;
-			if (find⁻¹ (trace [x].x₀, stack, ap) == 0x8000) serialize⁺ (trace [x].x₀);
+			if (__builtin_find (x) != 0x80000000) break;
+			if (__builtin_find (trace [x].x₀) == 0x80000000) serialize⁺ (trace [x].x₀);
 			assert (trace [x].reference != 0), translate (trace [x].xₙ, 1, STRICT);
-			fwrite (& op, 1, 1, stdout), move (& x, & stack [ap ++]);
+			fwrite (& op, 1, 1, stdout), __builtin_push (x);
 			break;
 		case OP_ADD:
-			if (find⁻¹ (x, stack, ap) < 1000) break;
-			if (find⁻¹ (trace [x].x₀, stack, ap) == 0x8000) serialize⁺ (trace [x].x₀);
-			if (find⁻¹ (trace [x].x₁, stack, ap) == 0x8000) serialize⁺ (trace [x].x₁);
+			if (__builtin_find (x) != 0x80000000) break;
+			if (__builtin_find (trace [x].x₀) == 0x80000000) serialize⁺ (trace [x].x₀);
+			if (__builtin_find (trace [x].x₁) == 0x80000000) serialize⁺ (trace [x].x₁);
 			assert (trace [x].reference != 0), translate (trace [x].xₙ, 2, LEEWAY);
-			move (& x, & stack [ap ++]), fwrite (& op, 1, 1, stdout);
+			__builtin_push (x), fwrite (& op, 1, 1, stdout);
 			break;
 		case OP_SUB:
-			if (find⁻¹ (x, stack, ap) < 1000) break;
-			if (find⁻¹ (trace [x].x₀, stack, ap) == 0x8000) serialize⁺ (trace [x].x₀);
-			if (find⁻¹ (trace [x].x₁, stack, ap) == 0x8000) serialize⁺ (trace [x].x₁);
+			if (__builtin_find (x) != 0x80000000) break;
+			if (__builtin_find (trace [x].x₀) == 0x80000000) serialize⁺ (trace [x].x₀);
+			if (__builtin_find (trace [x].x₁) == 0x80000000) serialize⁺ (trace [x].x₁);
 			assert (trace [x].reference != 0), translate (trace [x].xₙ, 2, STRICT);
-			move (& x, & stack [ap ++]), fwrite (& op, 1, 1, stdout);
+			__builtin_push (x), fwrite (& op, 1, 1, stdout);
 			break;
 		// OP_MUL
 		// OP_DIV
@@ -1407,23 +1330,23 @@ void serialize⁺ (uint16_t x)
 		case OP_NUMEQUAL:
 		case OP_NUMEQUALVERIFY:
 		case OP_NUMNOTEQUAL:
-			if (find⁻¹ (x, stack, ap) < 1000) break;
-			if (find⁻¹ (trace [x].x₀, stack, ap) == 0x8000) serialize⁺ (trace [x].x₀);
-			if (find⁻¹ (trace [x].x₁, stack, ap) == 0x8000) serialize⁺ (trace [x].x₁);
-			assert (find⁻¹ (trace [x].x₀, stack, ap) != 0x8000);
-			assert (find⁻¹ (trace [x].x₁, stack, ap) != 0x8000);
+			if (__builtin_find (x) != 0x80000000) break;
+			if (__builtin_find (trace [x].x₀) == 0x80000000) serialize⁺ (trace [x].x₀);
+			if (__builtin_find (trace [x].x₁) == 0x80000000) serialize⁺ (trace [x].x₁);
+			assert (__builtin_find (trace [x].x₀) != 0x80000000);
+			assert (__builtin_find (trace [x].x₁) != 0x80000000);
 			assert (trace [x].reference != 0), translate (trace [x].xₙ, 2, LEEWAY);
-			move (& x, & stack [ap ++]), fwrite (& op, 1, 1, stdout);
+			__builtin_push (x), fwrite (& op, 1, 1, stdout);
 			break;
 		case OP_LESSTHAN:
 		case OP_GREATERTHAN:
 		case OP_LESSTHANOREQUAL:
 		case OP_GREATERTHANOREQUAL:
-			if (find⁻¹ (x, stack, ap) < 1000) break;
-			if (find⁻¹ (trace [x].x₀, stack, ap) == 0x8000) serialize⁺ (trace [x].x₀);
-			if (find⁻¹ (trace [x].x₁, stack, ap) == 0x8000) serialize⁺ (trace [x].x₁);
-			assert (find⁻¹ (trace [x].x₀, stack, ap) != 0x8000);
-			assert (find⁻¹ (trace [x].x₁, stack, ap) != 0x8000);
+			if (__builtin_find (x) != 0x80000000) break;
+			if (__builtin_find (trace [x].x₀) == 0x80000000) serialize⁺ (trace [x].x₀);
+			if (__builtin_find (trace [x].x₁) == 0x80000000) serialize⁺ (trace [x].x₁);
+			assert (__builtin_find (trace [x].x₀) != 0x80000000);
+			assert (__builtin_find (trace [x].x₁) != 0x80000000);
 			assert (trace [x].reference != 0);
 			if (translate (trace [x].xₙ, 2, LEEWAY) == trace [x].x₀) switch (trace [x].code)
 			{
@@ -1433,28 +1356,28 @@ void serialize⁺ (uint16_t x)
 				case OP_GREATERTHANOREQUAL: op = OP_LESSTHAN; break;
 				default: break; // WARNING
 			}
-			move (& x, & stack [ap ++]), fwrite (& op, 1, 1, stdout);
+			__builtin_push (x), fwrite (& op, 1, 1, stdout);
 			break;
 		case OP_MIN:
 		case OP_MAX:
-			if (find⁻¹ (x, stack, ap) < 1000) break;
-			if (find⁻¹ (trace [x].x₀, stack, ap) == 0x8000) serialize⁺ (trace [x].x₀);
-			if (find⁻¹ (trace [x].x₁, stack, ap) == 0x8000) serialize⁺ (trace [x].x₁);
-			assert (find⁻¹ (trace [x].x₀, stack, ap) != 0x8000);
-			assert (find⁻¹ (trace [x].x₁, stack, ap) != 0x8000);
+			if (__builtin_find (x) != 0x80000000) break;
+			if (__builtin_find (trace [x].x₀) == 0x80000000) serialize⁺ (trace [x].x₀);
+			if (__builtin_find (trace [x].x₁) == 0x80000000) serialize⁺ (trace [x].x₁);
+			assert (__builtin_find (trace [x].x₀) != 0x80000000);
+			assert (__builtin_find (trace [x].x₁) != 0x80000000);
 			assert (trace [x].reference != 0), translate (trace [x].xₙ, 2, LEEWAY);
-			move (& x, & stack [ap ++]), fwrite (& op, 1, 1, stdout);
+			__builtin_push (x), fwrite (& op, 1, 1, stdout);
 			break;
 		case OP_WITHIN:
-			if (find⁻¹ (x, stack, ap) < 1000) break;
-			if (find⁻¹ (trace [x].x₀, stack, ap) == 0x8000) serialize⁺ (trace [x].x₀);
-			if (find⁻¹ (trace [x].x₁, stack, ap) == 0x8000) serialize⁺ (trace [x].x₁);
-			if (find⁻¹ (trace [x].x₂, stack, ap) == 0x8000) serialize⁺ (trace [x].x₂);
-			assert (find⁻¹ (trace [x].x₀, stack, ap) != 0x8000);
-			assert (find⁻¹ (trace [x].x₁, stack, ap) != 0x8000);
-			assert (find⁻¹ (trace [x].x₂, stack, ap) != 0x8000);
+			if (__builtin_find (x) != 0x80000000) break;
+			if (__builtin_find (trace [x].x₀) == 0x80000000) serialize⁺ (trace [x].x₀);
+			if (__builtin_find (trace [x].x₁) == 0x80000000) serialize⁺ (trace [x].x₁);
+			if (__builtin_find (trace [x].x₂) == 0x80000000) serialize⁺ (trace [x].x₂);
+			assert (__builtin_find (trace [x].x₀) != 0x80000000);
+			assert (__builtin_find (trace [x].x₁) != 0x80000000);
+			assert (__builtin_find (trace [x].x₂) != 0x80000000);
 			assert (trace [x].reference != 0), translate (trace [x].xₙ, 3, STRICT);
-			move (& x, & stack [ap ++]), fwrite (& op, 1, 1, stdout);
+			__builtin_push (x), fwrite (& op, 1, 1, stdout);
 			break;
 		// OP_RIPEMD160
 		// OP_SHA1
@@ -1482,21 +1405,19 @@ void serialize⁺ (uint16_t x)
 			break; // WARNING
 	}
 }
+// Dissolve expression (recursively)
 void serialize⁰ (uint16_t x)
 {
-	if (find⁻¹ (x, stack, ap) != 0x8000) return;
+	if (__builtin_find (x) != 0x80000000) return;
 	uint8_t op = nop;
 	switch (op = trace [x].code)
 	{
 		case OP_0:
 			assert (trace [x].reference == 0);
 			return;
-		case 1:
-		case 2:
-		case 3:
-		case 4:
+		case 1: case 2: case 3: case 4:
 			assert (trace [x].reference >= 1);
-			if (trace [x].reference >= 2 && find⁻¹ (x, stack, ap) == 0x8000) serialize⁺ (x);
+			if (trace [x].reference >= 2 && __builtin_find (x) == 0x80000000) serialize⁺ (x);
 			return;
 		// ⋯
 		// OP_PUSHDATA1
@@ -1507,7 +1428,7 @@ void serialize⁰ (uint16_t x)
 			return;
 		case OP_RESERVED:
 			assert (trace [x].reference >= 1);
-			assert (find⁻¹ (x, stack, ap) != 0x8000);
+			assert (__builtin_find (x) != 0x80000000);
 			return;
 		case OP_1:
 		case OP_2:
@@ -1532,11 +1453,13 @@ void serialize⁰ (uint16_t x)
 		case OP_IF:
 		case OP_NOTIF:
 			assert (trace [x].reference >= 1);
-			serialize⁰ (trace [x].x₀);
-			serialize⁰ (trace [x].x₁);
-			serialize⁰ (trace [x].x₂);
-			serialize⁺ (trace [x].x₀);
-			if (trace [x].reference >= 2 && find⁻¹ (x, stack, ap) == 0x8000) serialize⁺ (x);
+			serialize⁰ (trace [x].x₀), serialize⁺ (trace [x].x₀);
+			serialize⁰ (trace [x].x₁), serialize⁺ (trace [x].x₁);
+			serialize⁰ (trace [x].x₂), serialize⁺ (trace [x].x₂);
+			// serialize⁰ (trace [x].x₀);
+			// serialize⁰ (trace [x].x₁);
+			// serialize⁰ (trace [x].x₂), serialize⁺ (trace [x].x₀);
+			if (trace [x].reference >= 2 && __builtin_find (x) == 0x80000000) serialize⁺ (x);
 			return;
 		// OP_VERIF
 		// OP_VERNOTIF
@@ -1567,9 +1490,8 @@ void serialize⁰ (uint16_t x)
 		case OP_NOT:
 		case OP_0NOTEQUAL:
 			assert (trace [x].reference >= 1);
-			serialize⁰ (trace [x].x₀);
-			serialize⁺ (trace [x].x₀);
-			if (trace [x].reference >= 2 && find⁻¹ (x, stack, ap) == 0x8000) serialize⁺ (x);
+			serialize⁰ (trace [x].x₀), serialize⁺ (trace [x].x₀);
+			if (trace [x].reference >= 2 && __builtin_find (x) == 0x80000000) serialize⁺ (x);
 			return;
 		case OP_ADD:
 		case OP_SUB:
@@ -1590,21 +1512,16 @@ void serialize⁰ (uint16_t x)
 		case OP_MIN:
 		case OP_MAX:
 			assert (trace [x].reference >= 1);
-			serialize⁰ (trace [x].x₀);
-			serialize⁺ (trace [x].x₀);
-			serialize⁰ (trace [x].x₁);
-			serialize⁺ (trace [x].x₁);
-			if (trace [x].reference >= 2 && find⁻¹ (x, stack, ap) == 0x8000) serialize⁺ (x);
+			serialize⁰ (trace [x].x₀), serialize⁺ (trace [x].x₀);
+			serialize⁰ (trace [x].x₁), serialize⁺ (trace [x].x₁);
+			if (trace [x].reference >= 2 && __builtin_find (x) == 0x80000000) serialize⁺ (x);
 			return;
 		case OP_WITHIN:
 			assert (trace [x].reference >= 1);
-			serialize⁰ (trace [x].x₀);
-			serialize⁺ (trace [x].x₀);
-			serialize⁰ (trace [x].x₁);
-			serialize⁺ (trace [x].x₁);
-			serialize⁰ (trace [x].x₂);
-			serialize⁺ (trace [x].x₂);
-			if (trace [x].reference >= 2 && find⁻¹ (x, stack, ap) == 0x8000) serialize⁺ (x);
+			serialize⁰ (trace [x].x₀), serialize⁺ (trace [x].x₀);
+			serialize⁰ (trace [x].x₁), serialize⁺ (trace [x].x₁);
+			serialize⁰ (trace [x].x₂), serialize⁺ (trace [x].x₂);
+			if (trace [x].reference >= 2 && __builtin_find (x) == 0x80000000) serialize⁺ (x);
 			return;
 		// OP_RIPEMD160
 		// OP_SHA1
@@ -1641,8 +1558,8 @@ void serialize (const uint16_t xₙ [ ], uint8_t n, workflow s)
 		serialize⁰ (xₙ [i]);
 		serialize⁺ (xₙ [i]);
 	}
-	if (ap != n) fprintf (stderr, "Assertion failed: ap %s %hu\n", ap < n ? "≥" : "≤", n);
-	for (const uint16_t * xᵢ = xₙ; n --> 0; ) assert (find (* xᵢ ++, stack, ap) != 0x8000);
+	if (__builtin_ap != n) fprintf (stderr, "Assertion failed: ap %s %hu\n", __builtin_ap < n ? "≥" : "≤", n);
+	for (uint8_t i = 0; i < n; ++ i) assert (__builtin_find (xₙ [i]) != 0x80000000);
 	// Permute stack elements
 	translate (xₙ, n, s);
 	return;
@@ -1660,10 +1577,11 @@ int main (void)
 	// Mark result(s)
 	uint16_t xₙ [0x45] = { [0 ... 0x44] = nop };	
 	uint8_t n = 0;
-	while (ap > 0) move (& stack [ap - 1], & xₙ [n]), attach (xₙ [n ++]), move (& nop, & stack [-- ap]);
-	while (ap⁻¹ < 999) move (& stack [++ ap⁻¹], & xₙ [n]), attach (xₙ [n ++]), move (& nop, & stack [ap⁻¹ + 0]);
+	while (__builtin_ap > 0) attach (xₙ [n ++] = __builtin_drop);
+	if (__builtin_ap⁻¹ < 999) fputs ("Assertion failed: OP_FROMALTSTACK\n", stderr);
+	while (++ __builtin_ap⁻¹ <= 999) __builtin_stack [__builtin_ap⁻¹] = nop;
 	// Push variable(s)
-	for (uint16_t x = x₀; trace [x].code == OP_RESERVED; ++ x) move (& x, & stack [ap ++]);
+	for (uint16_t x = x₀; trace [x].code == OP_RESERVED; ++ x) __builtin_push (x);
 	// Flush Bitcoin script
 	if (n >= 1) serialize (xₙ, n, LEEWAY); else fputs ("Assertion failed: n ≥ 1\n", stderr);
 	return 0;
