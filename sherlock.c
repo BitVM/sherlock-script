@@ -626,55 +626,61 @@ void translate¹ (uint16_t x)
 	uint16_t Δap = __builtin_ap - apₓ - 1;
 	uint8_t op = nop;
 	uint8_t dup = trace [x].reference > count⁺ (x, reference⁻¹, 1) && __builtin_count (x) == 1;
-	// case 0b1:
-	if (Δap == 0 && dup != 0)
+	uint32_t xₙ [ ] = { x };
+	switch (__builtin_check⁻¹ (xₙ, 1))
 	{
-		__builtin_swap;
-		__builtin_over;
-		op = OP_TUCK, fwrite (& op, 1, 1, stdout);
-		dup = 0;
+		case 0b1:
+			assert (Δap == 0);
+			if (dup)
+			{
+				__builtin_swap;
+				__builtin_over;
+				op = OP_TUCK, fwrite (& op, 1, 1, stdout);
+			}
+			return;
+		case 0b10:
+			assert (Δap == 1);
+			if (dup) __builtin_over;
+			else __builtin_swap;
+			op = dup ? OP_OVER : OP_SWAP, fwrite (& op, 1, 1, stdout);
+			return;
+		case 0b100:
+			assert (Δap == 2);
+			if (! dup)
+			{
+				__builtin_roll (2);
+				op = OP_ROT, fwrite (& op, 1, 1, stdout);
+				return;
+			}
+			else; // 🡇
+		case 0b1000:
+		case 0b10000:
+		case 0b100000:
+		case 0b1000000:
+		case 0b10000000:
+		case 0b100000000:
+		case 0b1000000000:
+		case 0b10000000000:
+		case 0b100000000000:
+		case 0b1000000000000:
+		case 0b10000000000000:
+		case 0b100000000000000:
+		case 0b1000000000000000:
+		case 0b10000000000000000:
+			assert (Δap <= 16);	
+			op = OP_RESERVED + Δap, fwrite (& op, 1, 1, stdout);
+			break;
+		default:
+			assert (Δap > 16);
+			uint8_t n = 4 - __builtin_clz (Δap) / 8;
+			fwrite (& n, 1, 1, stdout);
+			fwrite (& Δap, 1, n, stdout);
+			break;
 	}
-	// case 0b10:
-	if (Δap == 1 && dup == 0)
-	{
-		__builtin_swap;
-		op = OP_SWAP, fwrite (& op, 1, 1, stdout), Δap = 0;
-	}
-	if (Δap == 1 && dup != 0)
-	{
-		__builtin_over;
-		op = OP_OVER, fwrite (& op, 1, 1, stdout), Δap = 0;
-		dup = 0;
-	}
-	// case 0b100:
-	if (! dup && Δap == 2)
-	{
-		__builtin_roll (2);
-		op = OP_ROT, fwrite (& op, 1, 1, stdout), Δap = 0;
-	}
-	// default:
-	if (Δap == 0) return;
-	if (Δap <= 16)
-	{
-		op = OP_RESERVED + Δap, fwrite (& op, 1, 1, stdout);
-	}
-	if (Δap > 16)
-	{
-		uint8_t n = 4 - __builtin_clz (Δap) / 8;
-		fwrite (& n, 1, 1, stdout);
-		fwrite (& Δap, 1, n, stdout);
-	}
-	if (dup == 0)
-	{
-		__builtin_roll (Δap);
-		op = OP_ROLL, fwrite (& op, 1, 1, stdout), Δap = 0;
-	}
-	if (dup != 0)
-	{
-		__builtin_pick (Δap);
-		op = OP_PICK, fwrite (& op, 1, 1, stdout), Δap = 0;
-		dup = 0;
-	}
+	assert (Δap >= 2);
+	if (dup) __builtin_pick (Δap);
+	else __builtin_roll (Δap);
+	op = dup ? OP_PICK : OP_ROLL, fwrite (& op, 1, 1, stdout);
 	assert (__builtin_stack [__builtin_ap - 1] == x);
 	return;
 }
@@ -1201,65 +1207,48 @@ void serialize⁺ (uint16_t x)
 		case OP_NOTIF:
 		{
 			if (__builtin_find (x) != 0x80000000) break;
-			// if (__builtin_find (trace [x].x₀) == 0x80000000) serialize⁺ (trace [x].x₀);
-			// if (__builtin_find (trace [x].x₁) == 0x80000000) serialize⁺ (trace [x].x₁);
-			// if (__builtin_find (trace [x].x₂) == 0x80000000) serialize⁺ (trace [x].x₂);
-			assert (trace [x].reference != 0);
-			uint16_t xₙ [ ] = { trace [x].x₁, trace [x].x₂, trace [x].x₀ };
-			translate (xₙ, 3, STRICT);
-			op = OP_IF, fwrite (& op, 1, 1, stdout);
-			op = OP_DROP, fwrite (& op, 1, 1, stdout);
-			op = OP_ELSE, fwrite (& op, 1, 1, stdout);
-			op = OP_NIP, fwrite (& op, 1, 1, stdout);
-			op = OP_ENDIF, fwrite (& op, 1, 1, stdout);
+			uint32_t __ap₁ = __builtin_find (trace [x].x₁);
+			uint32_t __ap₂ = __builtin_find (trace [x].x₂);
+			if (__ap₁ == 0x80000000 && trace [trace [x].x₁].reference >= 2) serialize⁺ (trace [x].x₁);
+			if (__ap₂ == 0x80000000 && trace [trace [x].x₂].reference >= 2) serialize⁺ (trace [x].x₂);
+			assert (__builtin_find (trace [x].x₀) != 0x80000000);
+			__ap₁ = __builtin_find (trace [x].x₁);
+			__ap₂ = __builtin_find (trace [x].x₂);
+			translate (& trace [x].x₀, 1, STRICT), fwrite (& op, 1, 1, stdout);
+			uint32_t ap₀ = __builtin_ap;
+			uint32_t ap₁ = __builtin_ap;
+			uint32_t ap₀⁻¹ = __builtin_ap⁻¹;
+			uint32_t ap₁⁻¹ = __builtin_ap⁻¹;
+			uint32_t stack₀ [1000], stack₁ [1000];
+			memcpy (stack₀, __builtin_stack, sizeof stack₀);
+			memcpy (stack₁, __builtin_stack, sizeof stack₁);
+			reference⁻¹ = trace [x].x₂;
+			if (__ap₁ == 0x80000000) serialize⁺ (trace [x].x₁);
+			uint8_t reference₁ = trace [trace [x].x₁].reference;
+			translate (& trace [x].x₁, 1, STRICT);
+			serialize⁻ (trace [x].x₂);
+			if (reference₁ != 0) ++ trace [trace [x].x₁].reference;
 			__builtin_push (x);
-			// if (__builtin_find (x) != 0x80000000) break;
-			// uint32_t __ap₁ = __builtin_find (trace [x].x₁);
-			// uint32_t __ap₂ = __builtin_find (trace [x].x₂);
-			// if (__ap₁ == 0x80000000 && trace [trace [x].x₁].reference >= 2) serialize⁺ (trace [x].x₁);
-			// if (__ap₂ == 0x80000000 && trace [trace [x].x₂].reference >= 2) serialize⁺ (trace [x].x₂);
-			// assert (__builtin_find (trace [x].x₀) != 0x80000000);
-			// __ap₁ = __builtin_find (trace [x].x₁);
-			// __ap₂ = __builtin_find (trace [x].x₂);
-			// translate (& trace [x].x₀, 1, STRICT), fwrite (& op, 1, 1, stdout);
-			// uint32_t ap₀ = __builtin_ap;
-			// uint32_t ap₁ = __builtin_ap;
-			// uint32_t ap₀⁻¹ = __builtin_ap⁻¹;
-			// uint32_t ap₁⁻¹ = __builtin_ap⁻¹;
-			// uint32_t stack₀ [1000], stack₁ [1000];
-			// memcpy (stack₀, __builtin_stack, sizeof stack₀);
-			// memcpy (stack₁, __builtin_stack, sizeof stack₁);
-			// reference⁻¹ = trace [x].x₂;
-			// if (__ap₁ == 0x80000000) serialize⁺ (trace [x].x₁);
-			// uint8_t reference₁ = trace [trace [x].x₁].reference;
-			// translate (& trace [x].x₁, 1, STRICT);
-			// serialize⁻ (trace [x].x₂);
-			// if (reference₁ != 0) ++ trace [trace [x].x₁].reference;
-			// __builtin_push (x);
-			// op = OP_ELSE, fwrite (& op, 1, 1, stdout);
-			// ap₀ = __builtin_ap;
-			// ap₀⁻¹ = __builtin_ap⁻¹;
-			// memcpy (stack₀, __builtin_stack, sizeof stack₀);
-			// __builtin_ap = ap₁;
-			// __builtin_ap⁻¹ = ap₁⁻¹;
-			// memcpy (__builtin_stack, stack₁, sizeof stack₁);
-			// reference⁻¹ = trace [x].x₁;
-			// if (__ap₂ == 0x80000000) serialize⁺ (trace [x].x₂);
-			// uint8_t reference₂ = trace [trace [x].x₂].reference;
-			// translate (& trace [x].x₂, 1, STRICT);
-			// serialize⁻ (trace [x].x₁);
-			// if (reference₂ != 0) ++ trace [trace [x].x₂].reference;
-			// __builtin_push (x);
-			// op = OP_ENDIF, fwrite (& op, 1, 1, stdout);
-			// ap₁ = __builtin_ap;
-			// ap₁⁻¹ = __builtin_ap⁻¹;
-			// memcpy (stack₁, __builtin_stack, sizeof stack₁);
-			// reference⁻¹ = nop;
-			// // 00123 00132 00213 00231 00312 00321
-			// // 01023 01032 01203 01230 01302 01320
-			// // 02013 02031 02103 02130 02301 02310
-			// // 03012 03021 03102 03120 03201 03210
-			// assert (ap₀ == ap₁ && ap₀⁻¹ == ap₁⁻¹);
+			op = OP_ELSE, fwrite (& op, 1, 1, stdout);
+			ap₀ = __builtin_ap;
+			ap₀⁻¹ = __builtin_ap⁻¹;
+			memcpy (stack₀, __builtin_stack, sizeof stack₀);
+			__builtin_ap = ap₁;
+			__builtin_ap⁻¹ = ap₁⁻¹;
+			memcpy (__builtin_stack, stack₁, sizeof stack₁);
+			reference⁻¹ = trace [x].x₁;
+			if (__ap₂ == 0x80000000) serialize⁺ (trace [x].x₂);
+			uint8_t reference₂ = trace [trace [x].x₂].reference;
+			serialize⁻ (trace [x].x₁);
+			translate (& trace [x].x₂, 1, STRICT);
+			if (reference₂ != 0) ++ trace [trace [x].x₂].reference;
+			__builtin_push (x);
+			op = OP_ENDIF, fwrite (& op, 1, 1, stdout);
+			ap₁ = __builtin_ap;
+			ap₁⁻¹ = __builtin_ap⁻¹;
+			memcpy (stack₁, __builtin_stack, sizeof stack₁);
+			reference⁻¹ = nop;
+			assert (ap₀ == ap₁ && ap₀⁻¹ == ap₁⁻¹);
 			break;
 		}
 		// OP_VERIF
@@ -1453,12 +1442,9 @@ void serialize⁰ (uint16_t x)
 		case OP_IF:
 		case OP_NOTIF:
 			assert (trace [x].reference >= 1);
-			serialize⁰ (trace [x].x₀), serialize⁺ (trace [x].x₀);
-			serialize⁰ (trace [x].x₁), serialize⁺ (trace [x].x₁);
-			serialize⁰ (trace [x].x₂), serialize⁺ (trace [x].x₂);
-			// serialize⁰ (trace [x].x₀);
-			// serialize⁰ (trace [x].x₁);
-			// serialize⁰ (trace [x].x₂), serialize⁺ (trace [x].x₀);
+			serialize⁰ (trace [x].x₀);
+			serialize⁰ (trace [x].x₁);
+			serialize⁰ (trace [x].x₂), serialize⁺ (trace [x].x₀);
 			if (trace [x].reference >= 2 && __builtin_find (x) == 0x80000000) serialize⁺ (x);
 			return;
 		// OP_VERIF
