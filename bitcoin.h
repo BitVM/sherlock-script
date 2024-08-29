@@ -1,3 +1,4 @@
+# include "stdio.h"
 # include "stdint.h"
 # include "assert.h"
 enum : uint8_t
@@ -48,11 +49,12 @@ uint32_t __builtin_find (uint32_t xᵢ)
 }
 uint64_t __builtin_check (const uint32_t * xₙ, uint8_t n)
 {
+	if (n > 64) n = 64; // n = min (n, 64)
 	uint64_t flag = 0x0000000000000000;
 	for (uint8_t idx = 0; idx < n; ++ idx)
 	for (uint16_t ap = 0; ap < __builtin_ap; ++ ap)
 	{
-		if (__builtin_stack [ap] == xₙ [idx] && idx < 64) flag |= 1 << idx;
+		if (__builtin_stack [ap] == xₙ [idx]) flag |= 1 << idx;
 	}
 	return flag;
 }
@@ -76,4 +78,45 @@ uint8_t __builtin_count (uint32_t x₀)
 		if (__builtin_stack [ap] == x₀) ++ cnt;
 	}
 	return cnt;
+}
+uint8_t __builtin_stdin¹ (void)
+# define __builtin_stdin¹ __builtin_stdin¹ ( )
+{
+	uint8_t op = OP_NOP;
+	fread (& op, 1, 1, stdin);
+	return op;
+}
+int32_t __builtin_stdin (uint8_t op)
+{
+	int32_t num = 0;
+	uint8_t imm8 = 0;
+	switch (op)
+	{
+		case 4: num |= __builtin_stdin¹ << imm8, imm8 += 8; // 🡇
+		case 3: num |= __builtin_stdin¹ << imm8, imm8 += 8; // 🡇
+		case 2: num |= __builtin_stdin¹ << imm8, imm8 += 8; // 🡇
+		case 1: num |= __builtin_stdin¹ << imm8;
+		default: break;
+	}
+	return num;
+}
+uint8_t __builtin_stdout¹ (uint8_t op)
+{
+	fwrite (& op, 1, 1, stdout);
+	return op;
+}
+int32_t __builtin_stdout (int32_t num)
+{
+	if (num == 0) return __builtin_stdout¹ (OP_0);
+	if (num == -1) return __builtin_stdout¹ (OP_1NEGATE);
+	if (num >= 1 && num <= 16) return __builtin_stdout¹ (OP_RESERVED + num);
+	int32_t value = num;
+	switch (__builtin_stdout¹ (4 - __builtin_clz (num) / 8))
+	{
+		case 4: __builtin_stdout¹ (num & 0xFF), num >>= 8; // 🡇
+		case 3: __builtin_stdout¹ (num & 0xFF), num >>= 8; // 🡇
+		case 2: __builtin_stdout¹ (num & 0xFF), num >>= 8; // 🡇
+		case 1: __builtin_stdout¹ (num & 0xFF);
+		default: return value;
+	}
 }

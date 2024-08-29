@@ -4,6 +4,11 @@
 # include "assert.h"
 # include "string.h"
 # include "bitcoin.h"
+void memswap (void * x₀, void * x₁, size_t n)
+{
+	void * tmp = memcpy (__builtin_alloca (n), x₀, n);
+	memcpy (x₀, x₁, n), memcpy (x₁, tmp, n);
+}
 # ifndef min
 # define min(x₀, x₁) ((x₀) < (x₁) ? (x₀) : (x₁))
 # endif
@@ -11,26 +16,24 @@
 # define max(x₀, x₁) ((x₀) > (x₁) ? (x₀) : (x₁))
 # endif
 // ⋯
-const uint16_t nop = OP_NOP; // NOTE: nop-terminated script
-const uint16_t x₀ = OP_CHECKSIGADD + 1; // Unlocking variable
-// const uint8_t f₀ = OP_CHECKSIGADD + 42; // Function definition
-// char function [24] [48] = { "f₀", "f₁", "f₂", "f₃", "f₄", "f₅", "f₆", "f₇", "f₈", "f₉", "f₁₀",
-// 	"f₁₁", "f₁₂", "f₁₃", "f₁₄", "f₁₅", "f₁₆", "f₁₇", "f₁₈", "f₁₉", "f₂₀", "f₂₁", "f₂₂", "f₂₃" };
-char variable [24] [48] = { "x₀", "x₁", "x₂", "x₃", "x₄", "x₅", "x₆", "x₇", "x₈", "x₉", "x₁₀",
-	"x₁₁", "x₁₂", "x₁₃", "x₁₄", "x₁₅", "x₁₆", "x₁₇", "x₁₈", "x₁₉", "x₂₀", "x₂₁", "x₂₂", "x₂₃" };
-struct {
+struct
+{
 	uint8_t code; // Sherlock script opcode
 	uint8_t reference; // Reference counter
 	union
 	{
 		int64_t num; // Constant
-		uint16_t xₙ [4]; // Operands
+		uint32_t xₙ [3]; // Operands
 		struct
 		{
-			uint16_t x₀, x₁, x₂, x₃;
+			uint32_t x₀, x₁, x₂;
 		};
 	};
-} trace [0x4000] = {
+}
+# define ÖP_MIN OP_CHECKSIGADD + 1
+# define ÖP_MAX 0x3FFF
+trace [ÖP_MAX + 1] =
+{
 	[OP_0].code = OP_0,
 	[OP_1NEGATE] = { .code = OP_1NEGATE, .num = -1 },
 	[OP_1] = { .code = OP_1, .num = 1 },
@@ -49,15 +52,16 @@ struct {
 	[OP_14] = { .code = OP_14, .num = 14 },
 	[OP_15] = { .code = OP_15, .num = 15 },
 	[OP_16] = { .code = OP_16, .num = 16 },
-	[OP_NOP].code = nop,
-	[x₀ ... 0x3FFF].code = nop,
 };
-uint16_t öp = x₀, öp⁻¹ = 0x3FFF; // Trace allocation pointer
+uint32_t öp = ÖP_MIN, öp⁻¹ = ÖP_MAX; // Trace allocation pointer
 // Read nop-terminated script
 uint8_t preprocess (void)
 {
-	uint16_t op = nop;
-	while (fread (& op, 1, 1, stdin) > 0) switch (op)
+	uint8_t op;
+	uint16_t ap, ap⁻¹;
+	uint32_t stack [1000];
+	uint32_t x₀, x₁, x₂;
+	do switch (op = __builtin_stdin¹)
 	{
 		case OP_0:
 			__builtin_push (OP_0);
@@ -67,11 +71,11 @@ uint8_t preprocess (void)
 		case 3:
 		case 4:
 			// Read multibyte integer
-			fread (& trace [öp⁻¹].num, 1, op, stdin);
+			trace [öp⁻¹].num = __builtin_stdin (op);
 			assert (trace [öp⁻¹].num > 16 || trace [öp⁻¹].num <= -1);
 			assert (trace [öp⁻¹].num < +2147483648); // x < +2³¹
 			assert (trace [öp⁻¹].num > -2147483648); // x > -2³¹
-			for (uint16_t öp = 0x3FFF; öp >= öp⁻¹; -- öp)
+			for (uint32_t öp = ÖP_MAX; öp >= öp⁻¹; -- öp)
 			{
 				// öp⁻¹ + 0
 				if (öp == öp⁻¹)
@@ -103,7 +107,7 @@ uint8_t preprocess (void)
 			assert (öp <= öp⁻¹);
 			// NOTE: OP_RESERVED "x₀"
 			trace [öp].code = OP_RESERVED;
-			trace [öp].num = öp - x₀;
+			trace [öp].num = öp - ÖP_MIN;
 			__builtin_push (öp ++);
 			continue;
 		case OP_1:
@@ -125,40 +129,31 @@ uint8_t preprocess (void)
 			__builtin_push (op);
 			continue;
 		case OP_NOP: // nop-terminated
-			return nop;
+			return OP_NOP;
 		case OP_VER: // Function definition
 			// NOTE: OP_VER "f₀"
 			continue; // WARNING
 		case OP_IF:
 		case OP_NOTIF:
 		{
-			uint32_t stack₀ [1000], stack₁ [1000];
-			uint16_t x₀ = __builtin_drop;
-			uint32_t ap₀ = __builtin_ap;
-			uint32_t ap₁ = __builtin_ap;
-			uint32_t ap₀⁻¹ = __builtin_ap⁻¹;
-			uint32_t ap₁⁻¹ = __builtin_ap⁻¹;
-			memcpy (stack₁, __builtin_stack, sizeof stack₁);
-			memcpy (stack₀, __builtin_stack, sizeof stack₀);
+			x₀ = __builtin_drop;
+			memmove (stack, __builtin_stack, sizeof stack);
+			memmove (& ap, & __builtin_ap, sizeof ap);
+			memmove (& ap⁻¹, & __builtin_ap⁻¹, sizeof ap⁻¹);
 			switch (preprocess ( ))
 			{
 				case OP_ELSE:
-					ap₀ = __builtin_ap;
-					ap₀⁻¹ = __builtin_ap⁻¹;
-					memcpy (stack₀, __builtin_stack, sizeof stack₀);
-					__builtin_ap = ap₁;
-					__builtin_ap⁻¹ = ap₁⁻¹;
-					memcpy (__builtin_stack, stack₁, sizeof stack₁);
+					memswap (stack, __builtin_stack, sizeof stack);
+					memswap (& ap, & __builtin_ap, sizeof ap);
+					memswap (& ap⁻¹, & __builtin_ap⁻¹, sizeof ap⁻¹);
 					if (preprocess ( ) != OP_ENDIF) fputs ("Assertion failed: OP_ENDIF\n", stderr);
-					ap₁ = __builtin_ap;
-					ap₁⁻¹ = __builtin_ap⁻¹;
-					memcpy (stack₁, __builtin_stack, sizeof stack₁);
-					break;
+					memswap (stack, __builtin_stack, sizeof stack);
+					memswap (& ap, & __builtin_ap, sizeof ap);
+					memswap (& ap⁻¹, & __builtin_ap⁻¹, sizeof ap⁻¹);
+					// 🡇
 				case OP_ENDIF:
-					ap₀ = __builtin_ap;
-					ap₀⁻¹ = __builtin_ap⁻¹;
-					memcpy (stack₀, __builtin_stack, sizeof stack₀);
-					assert (ap₀ == ap₁ && ap₀⁻¹ == ap₁⁻¹);
+					assert (__builtin_ap == ap);
+					assert (__builtin_ap⁻¹ == ap⁻¹);
 					break;
 				default:
 					fputs ("Assertion failed: OP_ENDIF\n", stderr); // WARNING
@@ -172,13 +167,9 @@ uint8_t preprocess (void)
 					ap = __builtin_ap⁻¹;
 					continue;
 				}
-				uint16_t x₁ = stack₀ [ap];
-				uint16_t x₂ = stack₁ [ap];
-				if (x₁ == x₂)
-				{
-					__builtin_stack [ap] = stack₀ [ap];
-					continue;
-				}
+				x₁ = __builtin_stack [ap];
+				x₂ = stack [ap];
+				if (x₁ == x₂) continue;
 				trace [öp].code = op;
 				trace [öp].x₀ = x₀;
 				trace [öp].x₁ = x₁;
@@ -358,7 +349,7 @@ uint8_t preprocess (void)
 		default:
 			continue; // WARNING
 	}
-	return op;
+	while (1);
 }
 // Select result
 void attach (uint16_t x)
@@ -493,10 +484,11 @@ void attach (uint16_t x)
 			return; // WARNING
 	}
 }
-uint16_t reference⁻¹ = nop;
+uint32_t reference⁻¹ = 0x80000000;
 // Count xᵢ in expression tree
-uint16_t count⁺ (uint16_t xᵢ, uint16_t x₀, uint8_t _)
+uint16_t count⁺ (uint32_t xᵢ, uint32_t x₀, uint8_t _)
 {
+	if (x₀ == 0x80000000) return 0; // WARNING
 	switch (trace [x₀].code)
 	{
 		case OP_0:
@@ -624,7 +616,6 @@ void translate¹ (uint16_t x)
 	assert (__builtin_ap >= 1);
 	uint32_t apₓ = __builtin_find (x);  assert (apₓ != 0x80000000);
 	uint16_t Δap = __builtin_ap - apₓ - 1;
-	uint8_t op = nop;
 	uint8_t dup = trace [x].reference > count⁺ (x, reference⁻¹, 1) && __builtin_count (x) == 1;
 	uint32_t xₙ [ ] = { x };
 	switch (__builtin_check⁻¹ (xₙ, 1))
@@ -635,24 +626,31 @@ void translate¹ (uint16_t x)
 			{
 				__builtin_swap;
 				__builtin_over;
-				op = OP_TUCK, fwrite (& op, 1, 1, stdout);
+				__builtin_stdout¹ (OP_TUCK);
 			}
 			return;
 		case 0b10:
 			assert (Δap == 1);
-			if (dup) __builtin_over;
-			else __builtin_swap;
-			op = dup ? OP_OVER : OP_SWAP, fwrite (& op, 1, 1, stdout);
+			if (dup)
+			{
+				__builtin_over;
+				__builtin_stdout¹ (OP_OVER);
+			}
+			else
+			{
+				__builtin_swap;
+				__builtin_stdout¹ (OP_SWAP);
+			}
 			return;
 		case 0b100:
 			assert (Δap == 2);
 			if (! dup)
 			{
 				__builtin_roll (2);
-				op = OP_ROT, fwrite (& op, 1, 1, stdout);
+				__builtin_stdout¹ (OP_ROT);
 				return;
 			}
-			else; // 🡇
+			// 🡇
 		case 0b1000:
 		case 0b10000:
 		case 0b100000:
@@ -667,20 +665,25 @@ void translate¹ (uint16_t x)
 		case 0b100000000000000:
 		case 0b1000000000000000:
 		case 0b10000000000000000:
-			assert (Δap <= 16);	
-			op = OP_RESERVED + Δap, fwrite (& op, 1, 1, stdout);
+			assert (Δap <= 16);
+			__builtin_stdout¹ (OP_RESERVED + Δap);
 			break;
 		default:
 			assert (Δap > 16);
-			uint8_t n = 4 - __builtin_clz (Δap) / 8;
-			fwrite (& n, 1, 1, stdout);
-			fwrite (& Δap, 1, n, stdout);
+			__builtin_stdout (Δap);
 			break;
 	}
 	assert (Δap >= 2);
-	if (dup) __builtin_pick (Δap);
-	else __builtin_roll (Δap);
-	op = dup ? OP_PICK : OP_ROLL, fwrite (& op, 1, 1, stdout);
+	if (dup)
+	{
+		__builtin_pick (Δap);
+		__builtin_stdout¹ (OP_PICK);
+	}
+	else
+	{
+		__builtin_roll (Δap);
+		__builtin_stdout¹ (OP_ROLL);
+	}
 	assert (__builtin_stack [__builtin_ap - 1] == x);
 	return;
 }
@@ -692,7 +695,6 @@ void translate² (uint16_t x₀, uint16_t x₁, workflow s)
 	uint16_t xˡʰˢ = __builtin_stack [min (ap₀, ap₁)];
 	uint16_t xʳʰˢ = __builtin_stack [max (ap₀, ap₁)];
 	uint32_t xₙ [ ] = {xˡʰˢ, xʳʰˢ};
-	uint8_t op = nop;
 	uint16_t dupˡʰˢ = trace [xˡʰˢ].reference > count⁺ (xˡʰˢ, reference⁻¹, 1) && __builtin_count (xˡʰˢ) == 1;
 	uint16_t dupʳʰˢ = trace [xʳʰˢ].reference > count⁺ (xʳʰˢ, reference⁻¹, 1) && __builtin_count (xʳʰˢ) == 1;
 	switch (__builtin_check⁻¹ (xₙ, 2))
@@ -700,20 +702,20 @@ void translate² (uint16_t x₀, uint16_t x₁, workflow s)
 		case 0b110000:
 			__builtin_roll (5);
 			__builtin_roll (5);
-			op = OP_2ROT, fwrite (& op, 1, 1, stdout);
+			__builtin_stdout¹ (OP_2ROT);
 			return translate² (x₀, x₁, s);
 		case 0b1100:
 			if (dupˡʰˢ && dupʳʰˢ)
 			{
 				__builtin_pick (3);
 				__builtin_pick (3);
-				op = OP_2OVER, fwrite (& op, 1, 1, stdout);
+				__builtin_stdout¹ (OP_2OVER);
 			}
 			else
 			{
 				__builtin_roll (3);
 				__builtin_roll (3);
-				op = OP_2SWAP, fwrite (& op, 1, 1, stdout);
+				__builtin_stdout¹ (OP_2SWAP);
 			}
 			return translate² (x₀, x₁, s);
 		case 0b110:
@@ -726,12 +728,12 @@ void translate² (uint16_t x₀, uint16_t x₁, workflow s)
 			if (x₀ == xˡʰˢ)
 			{
 				__builtin_roll (2);
-				op = OP_ROT, fwrite (& op, 1, 1, stdout);
+				__builtin_stdout¹ (OP_ROT);
 			}
 			else // x₀ == xʳʰˢ
 			{
 				__builtin_swap;
-				op = OP_SWAP, fwrite (& op, 1, 1, stdout);
+				__builtin_stdout¹ (OP_SWAP);
 			}
 			return translate² (x₀, x₁, s);
 		case 0b101:
@@ -742,33 +744,33 @@ void translate² (uint16_t x₀, uint16_t x₁, workflow s)
 				return;
 			}
 			__builtin_roll (2);
-			op = OP_ROT, fwrite (& op, 1, 1, stdout);
+			__builtin_stdout¹ (OP_ROT);
 			return translate² (x₀, x₁, s);
 		case 0b11:
 			if (dupˡʰˢ && dupʳʰˢ)
 			{
 				__builtin_over;
 				__builtin_over;
-				op = OP_2DUP, fwrite (& op, 1, 1, stdout);
+				__builtin_stdout¹ (OP_2DUP);
 			}
 			if (dupˡʰˢ != dupʳʰˢ)
 			{
 				if (dupˡʰˢ)
 				{
 					__builtin_over;
-					op = OP_OVER, fwrite (& op, 1, 1, stdout);
+					__builtin_stdout¹ (OP_OVER);
 				}
 				if (dupʳʰˢ)
 				{
 					__builtin_swap;
 					__builtin_over;
-					op = OP_TUCK, fwrite (& op, 1, 1, stdout);
+					__builtin_stdout¹ (OP_TUCK);
 				}
 			}
 			if (s == STRICT && __builtin_stack [__builtin_ap - 1] == x₀)
 			{
 				__builtin_swap;
-				op = OP_SWAP, fwrite (& op, 1, 1, stdout);
+				__builtin_stdout¹ (OP_SWAP);
 			}
 			return;
 		default:
@@ -798,7 +800,6 @@ void translate³ (uint16_t x₀, uint16_t x₁, uint16_t x₂, workflow s)
 	if (x₁ != xˡʰˢ && x₁ != xʳʰˢ) xᵐⁱᵈ = x₁;
 	if (x₂ != xˡʰˢ && x₂ != xʳʰˢ) xᵐⁱᵈ = x₂;
 	uint32_t xₙ [ ] = {xˡʰˢ, xᵐⁱᵈ, xʳʰˢ};
-	uint8_t op = nop;
 	uint16_t dupˡʰˢ = trace [xˡʰˢ].reference > count⁺ (xˡʰˢ, reference⁻¹, 1) && __builtin_count (xˡʰˢ) == 1;
 	uint16_t dupᵐⁱᵈ = trace [xᵐⁱᵈ].reference > count⁺ (xᵐⁱᵈ, reference⁻¹, 1) && __builtin_count (xᵐⁱᵈ) == 1;
 	uint16_t dupʳʰˢ = trace [xʳʰˢ].reference > count⁺ (xʳʰˢ, reference⁻¹, 1) && __builtin_count (xʳʰˢ) == 1;
@@ -810,15 +811,15 @@ void translate³ (uint16_t x₀, uint16_t x₁, uint16_t x₂, workflow s)
 				__builtin_pick (2);
 				__builtin_pick (2);
 				__builtin_pick (2);
-				op = OP_3DUP, fwrite (& op, 1, 1, stdout);
+				__builtin_stdout¹ (OP_3DUP);
 				dupˡʰˢ = dupᵐⁱᵈ = dupʳʰˢ = 0;
 			}
 			if (s == STRICT)
 			{
-				if (x₁ == xˡʰˢ || x₂ == xˡʰˢ && ! dupˡʰˢ) // xᵢ x₀ xⱼ  →  x₂ xⱼ xᵢ oder so
+				if (x₁ == xˡʰˢ || x₂ == xˡʰˢ && ! dupˡʰˢ) // xᵢ x₀ xⱼ  →  x₀ xⱼ xᵢ
 				{
 					__builtin_roll (2);
-					op = OP_ROT, fwrite (& op, 1, 1, stdout);
+					__builtin_stdout¹ (OP_ROT);
 					translate³ (x₀, x₁, x₂, STRICT);
 					return;
 				}
@@ -828,7 +829,7 @@ void translate³ (uint16_t x₀, uint16_t x₁, uint16_t x₂, workflow s)
 			{
 				__builtin_over;
 				__builtin_over;
-				op = OP_2DUP, fwrite (& op, 1, 1, stdout);
+				__builtin_stdout¹ (OP_2DUP);
 				translate³ (x₀, x₁, x₂, s);
 				return;
 			}
@@ -837,7 +838,7 @@ void translate³ (uint16_t x₀, uint16_t x₁, uint16_t x₂, workflow s)
 				if (x₂ == xᵐⁱᵈ && x₁ == xʳʰˢ) // x₀ x₂ x₁  →  x₀ x₁ x₂
 				{
 					__builtin_swap;
-					op = OP_SWAP, fwrite (& op, 1, 1, stdout);
+					__builtin_stdout¹ (OP_SWAP);
 					translate³ (x₀, x₁, x₂, STRICT);
 					return;
 				}
@@ -845,7 +846,7 @@ void translate³ (uint16_t x₀, uint16_t x₁, uint16_t x₂, workflow s)
 			if (dupᵐⁱᵈ) // xᵢ xⱼ  →  xᵢ xⱼ xᵢ
 			{
 				__builtin_over;
-				op = OP_OVER, fwrite (& op, 1, 1, stdout);
+				__builtin_stdout¹ (OP_OVER);
 				translate³ (x₀, x₁, x₂, s);
 				return;
 			}
@@ -853,7 +854,7 @@ void translate³ (uint16_t x₀, uint16_t x₁, uint16_t x₂, workflow s)
 			{
 				__builtin_swap;
 				__builtin_over;
-				op = OP_TUCK, fwrite (& op, 1, 1, stdout);
+				__builtin_stdout¹ (OP_TUCK);
 				translate³ (x₀, x₁, x₂, s);
 				return;
 			}
@@ -866,7 +867,7 @@ void translate³ (uint16_t x₀, uint16_t x₁, uint16_t x₂, workflow s)
 			if (x₁ == xᵐⁱᵈ && x₀ == xʳʰˢ) // x₂ ⋯ x₁ x₀  →  x₂ ⋯ x₀ x₁
 			{
 				__builtin_swap;
-				op = OP_SWAP, fwrite (& op, 1, 1, stdout);
+				__builtin_stdout¹ (OP_SWAP);
 				translate³ (x₀, x₁, x₂, s);
 				return;
 			}
@@ -903,13 +904,14 @@ void translate³ (uint16_t x₀, uint16_t x₁, uint16_t x₂, workflow s)
 	}
 }
 // Dispatch x₀ ⋯ xₙ₋₁
-uint16_t translate (const uint16_t xₙ [ ], uint8_t n, workflow s)
+uint32_t translate (const uint32_t xₙ [ ], uint8_t n, workflow s)
 {
-	uint16_t xᵢ;
-	uint16_t x₀, x₁, x₂;
-	if (n == 0) return nop; // WARNING
+	uint32_t xᵢ;
+	uint32_t x₀, x₁, x₂;
 	switch (n)
 	{
+		case 0:
+			return 0x80000000; // WARNING
 		case 1:
 			x₀ = xₙ [0];
 			if (trace [x₀].reference != 0) -- trace [x₀].reference;
@@ -928,9 +930,10 @@ uint16_t translate (const uint16_t xₙ [ ], uint8_t n, workflow s)
 				assert (__builtin_find (x₀) == __builtin_ap - 1), __builtin_drop;
 				return x₁;
 			}
+			assert (__builtin_check (xₙ, 2) == 0b11);
 			xᵢ = __builtin_stack [__builtin_ap - 1];
-			assert (__builtin_stack [__builtin_ap - 1] == x₀ || __builtin_stack [__builtin_ap - 1] == x₁), __builtin_drop;
-			assert (__builtin_stack [__builtin_ap - 1] == x₀ || __builtin_stack [__builtin_ap - 1] == x₁), __builtin_drop;
+			__builtin_drop;
+			__builtin_drop;
 			return xᵢ;
 		case 3:
 			x₀ = xₙ [0];
@@ -947,7 +950,7 @@ uint16_t translate (const uint16_t xₙ [ ], uint8_t n, workflow s)
 				assert (__builtin_find (x₀) == __builtin_ap - 1), __builtin_drop;
 				return x₂;
 			}
-			assert (__builtin_ap == min (min (__builtin_find (x₀), __builtin_find (x₁)), __builtin_find (x₂)) + 3);
+			assert (__builtin_check (xₙ, 3) == 0b111);
 			xᵢ = __builtin_stack [__builtin_ap - 1];
 			__builtin_drop;
 			__builtin_drop;
@@ -956,7 +959,9 @@ uint16_t translate (const uint16_t xₙ [ ], uint8_t n, workflow s)
 		default: // WARNING
 			assert (s == LEEWAY);
 			for (uint8_t i = 0; i < n; ++ i) assert (__builtin_find (xₙ [i]) != 0x80000000);
-			return __builtin_stack [__builtin_ap - 1];
+			xᵢ = __builtin_drop;
+			for (uint8_t i = 1; i < n; ++ i) __builtin_drop;
+			return xᵢ;
 	}
 }
 // Discard expression
@@ -1087,76 +1092,62 @@ void serialize⁻ (uint16_t x)
 		default:
 			return; // WARNING
 	}
-	uint8_t op = nop;
 	uint16_t Δap = __builtin_ap - apₓ - 1;
 	if (trace [x].reference < count⁺ (x, reference⁻¹, 1) && __builtin_count (x) == 1) switch (Δap)
 	{
 		case 0:
 			__builtin_drop;
-			op = OP_DROP; fwrite (& op, 1, 1, stdout);
+			__builtin_stdout¹ (OP_DROP);
 			return;
 		case 1:
 			__builtin_swap;
 			__builtin_drop;
-			op = OP_NIP; fwrite (& op, 1, 1, stdout);
+			__builtin_stdout¹ (OP_NIP);
 			return;
 		case 2:
 			__builtin_roll (2);
-			op = OP_ROT; fwrite (& op, 1, 1, stdout);
+			__builtin_stdout¹ (OP_ROT);
 			__builtin_drop;
-			op = OP_DROP; fwrite (& op, 1, 1, stdout);
+			__builtin_stdout¹ (OP_DROP);
 			return;
 		default:
-			if (Δap <= 16)
-			{
-				op = OP_RESERVED + Δap, fwrite (& op, 1, 1, stdout);
-			}
-			if (Δap > 16)
-			{
-				uint8_t n = 4 - __builtin_clz (Δap) / 8;
-				fwrite (& n, 1, 1, stdout);
-				fwrite (& Δap, 1, n, stdout);
-			}
+			__builtin_stdout (Δap);
 			__builtin_roll (Δap);
-			op = OP_ROLL; fwrite (& op, 1, 1, stdout);
+			__builtin_stdout¹ (OP_ROLL);
 			__builtin_drop;
-			op = OP_DROP; fwrite (& op, 1, 1, stdout);
+			__builtin_stdout¹ (OP_DROP);
 			return;
 	}
 }
 // Compute expression
 void serialize⁺ (uint16_t x)
 {
-	uint8_t op = nop;
-	// Compute x₀
-	switch (op = trace [x].code)
+	int64_t num;
+	uint16_t ap, ap⁻¹;
+	uint32_t stack [1000];	
+	uint32_t x₀, x₁, x₂;
+	uint32_t * xₙ = trace [x].xₙ;
+	uint32_t apₓ = __builtin_find (x);
+	uint32_t ap₀, ap₁, ap₂;
+	// Compute x
+	switch (trace [x].code)
 	{
 		case OP_0:
 			assert (trace [x].reference == 0);
 			__builtin_push (x);
-			fwrite (& op, 1, 1, stdout);
+			__builtin_stdout¹ (OP_0);
 			break;
 		case 1:
 		case 2:
 		case 3:
 		case 4:
 			assert (trace [x].reference != 0);
-			if (__builtin_find (x) != 0x80000000) break;
-			assert (trace [x].num > 16 || trace [x].num <= -1);
-			assert (trace [x].num < +2147483648); // x₀ < +2³¹
-			assert (trace [x].num > -2147483648); // x₀ > -2³¹
-			if (trace [x].num <= 16)
-			{
-				if (trace [x].num == 0) op = OP_0;
-				else op = OP_RESERVED + trace [x].num;
-				fwrite (& op, 1, 1, stdout);
-			}
-			else
-			{
-				uint8_t n = 4 - __builtin_clz (trace [x].num) / 8;
-				fwrite (& n, 1, 1, stdout);
-				fwrite (& trace [x].num, 1, n, stdout);
-			}
+			if (apₓ != 0x80000000) break;
+			num = trace [x].num;
+			assert (num > 16 || num <= -1);
+			assert (num < +2147483648); // x < +2³¹
+			assert (num > -2147483648); // x > -2³¹
+			__builtin_stdout (num);
 			__builtin_push (x);
 			break;
 		// ⋯
@@ -1166,7 +1157,7 @@ void serialize⁺ (uint16_t x)
 		// OP_1NEGATE
 		case OP_RESERVED:
 			assert (trace [x].reference != 0);
-			assert (__builtin_find (x) != 0x80000000);
+			assert (apₓ != 0x80000000);
 			break;
 		case OP_1:
 		case OP_2:
@@ -1185,72 +1176,49 @@ void serialize⁺ (uint16_t x)
 		case OP_15:
 		case OP_16:
 			assert (trace [x].reference == 0);
-			if (trace [x].num <= 16)
-			{
-				if (trace [x].num == 0) op = OP_0;
-				else op = OP_RESERVED + trace [x].num;
-				fwrite (& op, 1, 1, stdout);
-			}
-			else
-			{
-				uint8_t n = 4 - __builtin_clz (trace [x].num) / 8;
-				fwrite (& n, 1, 1, stdout);
-				fwrite (& trace [x].num, 1, n, stdout);
-			}
+			__builtin_stdout¹ (trace [x].code);
 			__builtin_push (x);
 			break;
 		case OP_NOP:
-			fwrite (& op, 1, 1, stdout);
+			__builtin_stdout¹ (OP_NOP);
 			break;
 		// OP_VER
 		case OP_IF:
 		case OP_NOTIF:
-		{
-			if (__builtin_find (x) != 0x80000000) break;
-			uint32_t __ap₁ = __builtin_find (trace [x].x₁);
-			uint32_t __ap₂ = __builtin_find (trace [x].x₂);
-			if (__ap₁ == 0x80000000 && trace [trace [x].x₁].reference >= 2) serialize⁺ (trace [x].x₁);
-			if (__ap₂ == 0x80000000 && trace [trace [x].x₂].reference >= 2) serialize⁺ (trace [x].x₂);
-			assert (__builtin_find (trace [x].x₀) != 0x80000000);
-			__ap₁ = __builtin_find (trace [x].x₁);
-			__ap₂ = __builtin_find (trace [x].x₂);
-			translate (& trace [x].x₀, 1, STRICT), fwrite (& op, 1, 1, stdout);
-			uint32_t ap₀ = __builtin_ap;
-			uint32_t ap₁ = __builtin_ap;
-			uint32_t ap₀⁻¹ = __builtin_ap⁻¹;
-			uint32_t ap₁⁻¹ = __builtin_ap⁻¹;
-			uint32_t stack₀ [1000], stack₁ [1000];
-			memcpy (stack₀, __builtin_stack, sizeof stack₀);
-			memcpy (stack₁, __builtin_stack, sizeof stack₁);
-			reference⁻¹ = trace [x].x₂;
-			if (__ap₁ == 0x80000000) serialize⁺ (trace [x].x₁);
-			uint8_t reference₁ = trace [trace [x].x₁].reference;
-			translate (& trace [x].x₁, 1, STRICT);
-			serialize⁻ (trace [x].x₂);
-			if (reference₁ != 0) ++ trace [trace [x].x₁].reference;
+			if (apₓ != 0x80000000) break;
+			x₀ = trace [x].x₀, ap₀ = __builtin_find (x₀);  assert (ap₀ != 0x80000000);
+			x₁ = trace [x].x₁, ap₁ = __builtin_find (x₁);
+			x₂ = trace [x].x₂, ap₂ = __builtin_find (x₂);
+			if (ap₁ == 0x80000000 && trace [x₁].reference >= 2) serialize⁺ (x₁), ap₁ = __builtin_find (x₁);
+			if (ap₂ == 0x80000000 && trace [x₂].reference >= 2) serialize⁺ (x₂), ap₂ = __builtin_find (x₂);
+			translate (& x₀, 1, STRICT);
+			__builtin_stdout¹ (trace [x].code);
+			memmove (stack, __builtin_stack, sizeof stack);
+			memmove (& ap, & __builtin_ap, sizeof ap);
+			memmove (& ap⁻¹, & __builtin_ap⁻¹, sizeof ap⁻¹);
+			reference⁻¹ = x₂;
+			if (ap₁ == 0x80000000) serialize⁺ (x₁);
+			uint8_t reference₁ = trace [x₁].reference;
+			translate (& x₁, 1, STRICT);
+			serialize⁻ (x₂);
+			if (reference₁ != 0) ++ trace [x₁].reference;
 			__builtin_push (x);
-			op = OP_ELSE, fwrite (& op, 1, 1, stdout);
-			ap₀ = __builtin_ap;
-			ap₀⁻¹ = __builtin_ap⁻¹;
-			memcpy (stack₀, __builtin_stack, sizeof stack₀);
-			__builtin_ap = ap₁;
-			__builtin_ap⁻¹ = ap₁⁻¹;
-			memcpy (__builtin_stack, stack₁, sizeof stack₁);
-			reference⁻¹ = trace [x].x₁;
-			if (__ap₂ == 0x80000000) serialize⁺ (trace [x].x₂);
-			uint8_t reference₂ = trace [trace [x].x₂].reference;
-			serialize⁻ (trace [x].x₁);
-			translate (& trace [x].x₂, 1, STRICT);
-			if (reference₂ != 0) ++ trace [trace [x].x₂].reference;
+			__builtin_stdout¹ (OP_ELSE);
+			memswap (stack, __builtin_stack, sizeof stack);
+			memswap (& ap, & __builtin_ap, sizeof ap);
+			memswap (& ap⁻¹, & __builtin_ap⁻¹, sizeof ap⁻¹);
+			reference⁻¹ = x₁;
+			if (ap₂ == 0x80000000) serialize⁺ (x₂);
+			uint8_t reference₂ = trace [x₂].reference;
+			serialize⁻ (x₁);
+			translate (& x₂, 1, STRICT);
+			if (reference₂ != 0) ++ trace [x₂].reference;
 			__builtin_push (x);
-			op = OP_ENDIF, fwrite (& op, 1, 1, stdout);
-			ap₁ = __builtin_ap;
-			ap₁⁻¹ = __builtin_ap⁻¹;
-			memcpy (stack₁, __builtin_stack, sizeof stack₁);
-			reference⁻¹ = nop;
-			assert (ap₀ == ap₁ && ap₀⁻¹ == ap₁⁻¹);
+			__builtin_stdout¹ (OP_ENDIF);
+			reference⁻¹ = 0x80000000;
+			assert (__builtin_ap == ap);
+			assert (__builtin_ap⁻¹ == ap⁻¹);
 			break;
-		}
 		// OP_VERIF
 		// OP_VERNOTIF
 		// OP_ELSE
@@ -1273,41 +1241,59 @@ void serialize⁺ (uint16_t x)
 		// OP_RESERVED2
 		case OP_1ADD:
 		case OP_1SUB:
-			if (__builtin_find (x) != 0x80000000) break;
-			if (__builtin_find (trace [x].x₀) == 0x80000000) serialize⁺ (trace [x].x₀);
-			assert (trace [x].reference != 0), translate (trace [x].xₙ, 1, STRICT);
-			__builtin_push (x), fwrite (& op, 1, 1, stdout);
+			if (apₓ != 0x80000000) break;
+			x₀ = trace [x].x₀;
+			ap₀ = __builtin_find (x₀);
+			if (ap₀ == 0x80000000) serialize⁺ (x₀);
+			assert (trace [x].reference != 0);
+			translate (& x₀, 1, STRICT);
+			__builtin_push (x);
+			__builtin_stdout¹ (trace [x].code);
 			break;
 		case OP_2MUL:
-			if (__builtin_find (x) != 0x80000000) break;
-			if (__builtin_find (trace [x].x₀) == 0x80000000) serialize⁺ (trace [x].x₀);
-			assert (trace [x].reference != 0), translate (trace [x].xₙ, 1, STRICT);
-			op = OP_DUP, fwrite (& op, 1, 1, stdout);
-			op = OP_ADD, fwrite (& op, 1, 1, stdout), __builtin_push (x);
+			if (apₓ != 0x80000000) break;
+			x₀ = trace [x].x₀, ap₀ = __builtin_find (x₀);
+			if (ap₀ == 0x80000000) serialize⁺ (x₀);
+			assert (trace [x].reference != 0);
+			translate (& x₀, 1, STRICT);
+			__builtin_stdout¹ (OP_DUP);
+			__builtin_stdout¹ (OP_ADD);
+			__builtin_push (x);
 			break;
 		case OP_2DIV:
 		case OP_NEGATE:
 		case OP_ABS:
 		case OP_NOT:
 		case OP_0NOTEQUAL:
-			if (__builtin_find (x) != 0x80000000) break;
-			if (__builtin_find (trace [x].x₀) == 0x80000000) serialize⁺ (trace [x].x₀);
-			assert (trace [x].reference != 0), translate (trace [x].xₙ, 1, STRICT);
-			fwrite (& op, 1, 1, stdout), __builtin_push (x);
+			if (apₓ != 0x80000000) break;
+			x₀ = trace [x].x₀, ap₀ = __builtin_find (x₀);
+			if (ap₀ == 0x80000000) serialize⁺ (x₀);
+			assert (trace [x].reference != 0);
+			translate (& x₀, 1, STRICT);
+			__builtin_stdout¹ (trace [x].code);
+			__builtin_push (x);
 			break;
 		case OP_ADD:
-			if (__builtin_find (x) != 0x80000000) break;
-			if (__builtin_find (trace [x].x₀) == 0x80000000) serialize⁺ (trace [x].x₀);
-			if (__builtin_find (trace [x].x₁) == 0x80000000) serialize⁺ (trace [x].x₁);
-			assert (trace [x].reference != 0), translate (trace [x].xₙ, 2, LEEWAY);
-			__builtin_push (x), fwrite (& op, 1, 1, stdout);
+			if (apₓ != 0x80000000) break;
+			x₀ = trace [x].x₀, ap₀ = __builtin_find (x₀);
+			x₁ = trace [x].x₁, ap₁ = __builtin_find (x₁);
+			if (ap₀ == 0x80000000) serialize⁺ (trace [x].x₀);
+			if (ap₁ == 0x80000000) serialize⁺ (trace [x].x₁);
+			assert (trace [x].reference != 0);
+			translate (xₙ, 2, LEEWAY);
+			__builtin_push (x);
+			__builtin_stdout¹ (OP_ADD);
 			break;
 		case OP_SUB:
-			if (__builtin_find (x) != 0x80000000) break;
-			if (__builtin_find (trace [x].x₀) == 0x80000000) serialize⁺ (trace [x].x₀);
-			if (__builtin_find (trace [x].x₁) == 0x80000000) serialize⁺ (trace [x].x₁);
-			assert (trace [x].reference != 0), translate (trace [x].xₙ, 2, STRICT);
-			__builtin_push (x), fwrite (& op, 1, 1, stdout);
+			if (apₓ != 0x80000000) break;
+			x₀ = trace [x].x₀, ap₀ = __builtin_find (x₀);
+			x₁ = trace [x].x₁, ap₁ = __builtin_find (x₁);
+			if (ap₀ == 0x80000000) serialize⁺ (x₀);
+			if (ap₁ == 0x80000000) serialize⁺ (x₁);
+			assert (trace [x].reference != 0);
+			translate (xₙ, 2, STRICT);
+			__builtin_push (x);
+			__builtin_stdout¹ (OP_SUB);
 			break;
 		// OP_MUL
 		// OP_DIV
@@ -1319,54 +1305,70 @@ void serialize⁺ (uint16_t x)
 		case OP_NUMEQUAL:
 		case OP_NUMEQUALVERIFY:
 		case OP_NUMNOTEQUAL:
-			if (__builtin_find (x) != 0x80000000) break;
-			if (__builtin_find (trace [x].x₀) == 0x80000000) serialize⁺ (trace [x].x₀);
-			if (__builtin_find (trace [x].x₁) == 0x80000000) serialize⁺ (trace [x].x₁);
-			assert (__builtin_find (trace [x].x₀) != 0x80000000);
-			assert (__builtin_find (trace [x].x₁) != 0x80000000);
-			assert (trace [x].reference != 0), translate (trace [x].xₙ, 2, LEEWAY);
-			__builtin_push (x), fwrite (& op, 1, 1, stdout);
+			if (apₓ != 0x80000000) break;
+			x₀ = trace [x].x₀, ap₀ = __builtin_find (x₀);
+			x₁ = trace [x].x₁, ap₁ = __builtin_find (x₁);
+			if (ap₀ == 0x80000000) serialize⁺ (x₀);
+			if (ap₁ == 0x80000000) serialize⁺ (x₁);
+			ap₀ = __builtin_find (x₀);  assert (ap₀ != 0x80000000);
+			ap₁ = __builtin_find (x₁);  assert (ap₁ != 0x80000000);
+			assert (trace [x].reference != 0);
+			translate (xₙ, 2, LEEWAY);
+			__builtin_push (x);
+			__builtin_stdout¹ (trace [x].code);
 			break;
 		case OP_LESSTHAN:
 		case OP_GREATERTHAN:
 		case OP_LESSTHANOREQUAL:
 		case OP_GREATERTHANOREQUAL:
-			if (__builtin_find (x) != 0x80000000) break;
-			if (__builtin_find (trace [x].x₀) == 0x80000000) serialize⁺ (trace [x].x₀);
-			if (__builtin_find (trace [x].x₁) == 0x80000000) serialize⁺ (trace [x].x₁);
-			assert (__builtin_find (trace [x].x₀) != 0x80000000);
-			assert (__builtin_find (trace [x].x₁) != 0x80000000);
+			if (apₓ != 0x80000000) break;
+			x₀ = trace [x].x₀, ap₀ = __builtin_find (x₀);
+			x₁ = trace [x].x₁, ap₁ = __builtin_find (x₁);
+			if (ap₀ == 0x80000000) serialize⁺ (x₀);
+			if (ap₁ == 0x80000000) serialize⁺ (x₁);
+			ap₀ = __builtin_find (x₀);  assert (ap₀ != 0x80000000);
+			ap₁ = __builtin_find (x₁);  assert (ap₁ != 0x80000000);
 			assert (trace [x].reference != 0);
-			if (translate (trace [x].xₙ, 2, LEEWAY) == trace [x].x₀) switch (trace [x].code)
+			if (translate (xₙ, 2, LEEWAY) == x₁) __builtin_stdout¹ (trace [x].code);
+			else switch (trace [x].code)
 			{
-				case OP_LESSTHAN: op = OP_GREATERTHANOREQUAL; break;
-				case OP_GREATERTHAN: op = OP_LESSTHANOREQUAL; break;
-				case OP_LESSTHANOREQUAL: op = OP_GREATERTHAN; break;
-				case OP_GREATERTHANOREQUAL: op = OP_LESSTHAN; break;
+				case OP_LESSTHAN: __builtin_stdout¹ (OP_GREATERTHANOREQUAL); break;
+				case OP_GREATERTHAN: __builtin_stdout¹ (OP_LESSTHANOREQUAL); break;
+				case OP_LESSTHANOREQUAL: __builtin_stdout¹ (OP_GREATERTHAN); break;
+				case OP_GREATERTHANOREQUAL: __builtin_stdout¹ (OP_LESSTHAN); break;
 				default: break; // WARNING
 			}
-			__builtin_push (x), fwrite (& op, 1, 1, stdout);
+			__builtin_push (x);
 			break;
 		case OP_MIN:
 		case OP_MAX:
-			if (__builtin_find (x) != 0x80000000) break;
-			if (__builtin_find (trace [x].x₀) == 0x80000000) serialize⁺ (trace [x].x₀);
-			if (__builtin_find (trace [x].x₁) == 0x80000000) serialize⁺ (trace [x].x₁);
-			assert (__builtin_find (trace [x].x₀) != 0x80000000);
-			assert (__builtin_find (trace [x].x₁) != 0x80000000);
-			assert (trace [x].reference != 0), translate (trace [x].xₙ, 2, LEEWAY);
-			__builtin_push (x), fwrite (& op, 1, 1, stdout);
+			if (apₓ != 0x80000000) break;
+			x₀ = trace [x].x₀, ap₀ = __builtin_find (x₀);
+			x₁ = trace [x].x₁, ap₁ = __builtin_find (x₁);
+			if (ap₀ == 0x80000000) serialize⁺ (x₀);
+			if (ap₁ == 0x80000000) serialize⁺ (x₁);
+			ap₀ = __builtin_find (x₀);  assert (ap₀ != 0x80000000);
+			ap₁ = __builtin_find (x₁);  assert (ap₁ != 0x80000000);
+			assert (trace [x].reference != 0);
+			translate (xₙ, 2, LEEWAY);
+			__builtin_push (x);
+			__builtin_stdout¹ (trace [x].code);
 			break;
 		case OP_WITHIN:
-			if (__builtin_find (x) != 0x80000000) break;
-			if (__builtin_find (trace [x].x₀) == 0x80000000) serialize⁺ (trace [x].x₀);
-			if (__builtin_find (trace [x].x₁) == 0x80000000) serialize⁺ (trace [x].x₁);
-			if (__builtin_find (trace [x].x₂) == 0x80000000) serialize⁺ (trace [x].x₂);
-			assert (__builtin_find (trace [x].x₀) != 0x80000000);
-			assert (__builtin_find (trace [x].x₁) != 0x80000000);
-			assert (__builtin_find (trace [x].x₂) != 0x80000000);
-			assert (trace [x].reference != 0), translate (trace [x].xₙ, 3, STRICT);
-			__builtin_push (x), fwrite (& op, 1, 1, stdout);
+			if (apₓ != 0x80000000) break;
+			x₀ = trace [x].x₀, ap₀ = __builtin_find (x₀);
+			x₁ = trace [x].x₁, ap₁ = __builtin_find (x₁);
+			x₂ = trace [x].x₂, ap₂ = __builtin_find (x₂);
+			if (ap₀ == 0x80000000) serialize⁺ (x₀);
+			if (ap₁ == 0x80000000) serialize⁺ (x₁);
+			if (ap₂ == 0x80000000) serialize⁺ (x₂);
+			ap₀ = __builtin_find (x₀);  assert (ap₀ != 0x80000000);
+			ap₁ = __builtin_find (x₁);  assert (ap₁ != 0x80000000);
+			ap₂ = __builtin_find (x₂);  assert (ap₂ != 0x80000000);
+			assert (trace [x].reference != 0);
+			translate (xₙ, 3, STRICT);
+			__builtin_push (x);
+			__builtin_stdout¹ (trace [x].code);
 			break;
 		// OP_RIPEMD160
 		// OP_SHA1
@@ -1398,15 +1400,18 @@ void serialize⁺ (uint16_t x)
 void serialize⁰ (uint16_t x)
 {
 	if (__builtin_find (x) != 0x80000000) return;
-	uint8_t op = nop;
+	uint8_t op;
 	switch (op = trace [x].code)
 	{
 		case OP_0:
 			assert (trace [x].reference == 0);
 			return;
-		case 1: case 2: case 3: case 4:
+		case 1:
+		case 2:
+		case 3:
+		case 4:
 			assert (trace [x].reference >= 1);
-			if (trace [x].reference >= 2 && __builtin_find (x) == 0x80000000) serialize⁺ (x);
+			if (trace [x].reference >= 2) serialize⁺ (x);
 			return;
 		// ⋯
 		// OP_PUSHDATA1
@@ -1417,8 +1422,7 @@ void serialize⁰ (uint16_t x)
 			return;
 		case OP_RESERVED:
 			assert (trace [x].reference >= 1);
-			assert (__builtin_find (x) != 0x80000000);
-			return;
+			return; // WARNING
 		case OP_1:
 		case OP_2:
 		case OP_3:
@@ -1445,7 +1449,7 @@ void serialize⁰ (uint16_t x)
 			serialize⁰ (trace [x].x₀);
 			serialize⁰ (trace [x].x₁);
 			serialize⁰ (trace [x].x₂), serialize⁺ (trace [x].x₀);
-			if (trace [x].reference >= 2 && __builtin_find (x) == 0x80000000) serialize⁺ (x);
+			if (trace [x].reference >= 2) serialize⁺ (x);
 			return;
 		// OP_VERIF
 		// OP_VERNOTIF
@@ -1477,7 +1481,7 @@ void serialize⁰ (uint16_t x)
 		case OP_0NOTEQUAL:
 			assert (trace [x].reference >= 1);
 			serialize⁰ (trace [x].x₀), serialize⁺ (trace [x].x₀);
-			if (trace [x].reference >= 2 && __builtin_find (x) == 0x80000000) serialize⁺ (x);
+			if (trace [x].reference >= 2) serialize⁺ (x);
 			return;
 		case OP_ADD:
 		case OP_SUB:
@@ -1500,14 +1504,14 @@ void serialize⁰ (uint16_t x)
 			assert (trace [x].reference >= 1);
 			serialize⁰ (trace [x].x₀), serialize⁺ (trace [x].x₀);
 			serialize⁰ (trace [x].x₁), serialize⁺ (trace [x].x₁);
-			if (trace [x].reference >= 2 && __builtin_find (x) == 0x80000000) serialize⁺ (x);
+			if (trace [x].reference >= 2) serialize⁺ (x);
 			return;
 		case OP_WITHIN:
 			assert (trace [x].reference >= 1);
 			serialize⁰ (trace [x].x₀), serialize⁺ (trace [x].x₀);
 			serialize⁰ (trace [x].x₁), serialize⁺ (trace [x].x₁);
 			serialize⁰ (trace [x].x₂), serialize⁺ (trace [x].x₂);
-			if (trace [x].reference >= 2 && __builtin_find (x) == 0x80000000) serialize⁺ (x);
+			if (trace [x].reference >= 2) serialize⁺ (x);
 			return;
 		// OP_RIPEMD160
 		// OP_SHA1
@@ -1536,7 +1540,7 @@ void serialize⁰ (uint16_t x)
 	}
 }
 // Flush Bitcoin script
-void serialize (const uint16_t xₙ [ ], uint8_t n, workflow s)
+void serialize (const uint32_t xₙ [ ], uint8_t n, workflow s)
 {
 	// Compute x₀ ⋯ xₙ₋₁
 	for (uint8_t i = 0; i < n; ++ i)
@@ -1561,13 +1565,13 @@ int main (void)
 	uint8_t op = preprocess ( );
 	assert (op == OP_NOP);
 	// Mark result(s)
-	uint16_t xₙ [0x45] = { [0 ... 0x44] = nop };	
+	uint32_t xₙ [0x45] = { [0 ... 0x44] = 0x80000000 };	
 	uint8_t n = 0;
 	while (__builtin_ap > 0) attach (xₙ [n ++] = __builtin_drop);
 	if (__builtin_ap⁻¹ < 999) fputs ("Assertion failed: OP_FROMALTSTACK\n", stderr);
-	while (++ __builtin_ap⁻¹ <= 999) __builtin_stack [__builtin_ap⁻¹] = nop;
+	while (++ __builtin_ap⁻¹ <= 999) __builtin_stack [__builtin_ap⁻¹] = 0x80000000;
 	// Push variable(s)
-	for (uint16_t x = x₀; trace [x].code == OP_RESERVED; ++ x) __builtin_push (x);
+	for (uint32_t x = ÖP_MIN; trace [x].code == OP_RESERVED; ++ x) __builtin_push (x);
 	// Flush Bitcoin script
 	if (n >= 1) serialize (xₙ, n, LEEWAY); else fputs ("Assertion failed: n ≥ 1\n", stderr);
 	return 0;
